@@ -20,6 +20,8 @@
         label { font-size: 0.8rem; font-weight: bold; color: #495057; }
         input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem;}
         
+        .input-group { display: flex; gap: 5px; }
+        
         button.action-btn { width: 100%; padding: 15px; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; font-weight: bold; margin-bottom: 10px;}
         button.action-btn:hover { background: #0056b3; }
         button.gps-btn { padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 4px; font-size: 0.8rem; cursor: pointer; }
@@ -27,7 +29,7 @@
         
         .results { background: #eef; padding: 10px; border-radius: 4px; margin-bottom: 15px; font-weight: bold; text-align: center; font-size: 0.95rem; border: 1px solid #b8daff; color: #004085;}
         
-        /* AR Camera View Styles - UPDATED FOR iOS VISIBILITY */
+        /* AR Camera View Styles - iOS VISIBILITY FIXED */
         #ar-view { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: black; z-index: 1000; }
         video { width: 100%; height: 100%; object-fit: cover; }
         
@@ -40,7 +42,7 @@
         
         #close-ar { position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 20px)); background: #dc3545; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
         
-        /* Recalibrate Button - UPDATED FOR iOS VISIBILITY */
+        /* Recalibrate Button */
         #btn-recal { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); right: calc(20px + env(safe-area-inset-right, 20px)); background: #ff9800; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
         
         .crosshair { position: absolute; top: 50%; left: 50%; width: 80px; height: 80px; transform: translate(-50%, -50%); z-index: 1005; }
@@ -64,7 +66,13 @@
             <div><label>Latitude</label><input type="number" id="locLat" step="any"></div>
             <div><label>Longitude</label><input type="number" id="locLon" step="any"></div>
             <div class="full-width"><label>Elevation (AMSL + AGL in m)</label><input type="number" id="localHeight" value="100"></div>
-            <div class="full-width"><label>Magnetic Declination (°)</label><input type="number" id="magDec" value="6.0" step="0.1"></div>
+            <div class="full-width">
+                <label>Magnetic Declination (°)</label>
+                <div class="input-group">
+                    <input type="number" id="magDec" value="6.0" step="0.1">
+                    <button id="btn-fetch-dec" class="gps-btn" style="white-space: nowrap; background: #6c757d;">Auto Fetch</button>
+                </div>
+            </div>
         </div>
         <button id="btn-share" class="share-btn">Share My Location with Remote Site</button>
     </div>
@@ -148,15 +156,62 @@
     [locLatInput, locLonInput, remLatInput, remLonInput].forEach(i => i.addEventListener('input', syncInputsToMap));
     [locHeightInput, remHeightInput, errorMarginInput, magDecInput].forEach(i => i.addEventListener('input', calculateAlignment));
 
+    // --- NEW: NOAA API Integration ---
+    async function fetchNOAADeclination(lat, lon) {
+        const btn = document.getElementById('btn-fetch-dec');
+        const originalText = btn.innerText;
+        btn.innerText = "Loading...";
+        btn.disabled = true;
+
+        try {
+            // Using your exact API key and JSON format
+            const url = `https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination?lat1=${lat}&lon1=${lon}&key=zNEw7&resultFormat=json`;
+            const response = await fetch(url);
+            
+            if (!response.ok) throw new Error("NOAA API Error");
+            const data = await response.json();
+            
+            if (data && data.result && data.result.length > 0) {
+                const declination = data.result[0].declination;
+                magDecInput.value = declination.toFixed(2);
+                calculateAlignment(); // Recalculate everything with the new offset
+            }
+        } catch (error) {
+            console.error("NOAA Fetch Failed:", error);
+            alert("Could not fetch magnetic declination. You may be offline or the API rate limit was reached.");
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    // Manual Fetch Button
+    document.getElementById('btn-fetch-dec').addEventListener('click', () => {
+        const lat = parseFloat(locLatInput.value);
+        const lon = parseFloat(locLonInput.value);
+        if (!isNaN(lat) && !isNaN(lon)) {
+            fetchNOAADeclination(lat, lon);
+        } else {
+            alert("Please set your Local Site coordinates first.");
+        }
+    });
+
+    // GPS Button now auto-fetches declination too
     document.getElementById('btn-gps').addEventListener('click', () => {
         if (!navigator.geolocation) return alert("Geolocation not supported.");
         const btn = document.getElementById('btn-gps'); btn.innerText = "Locating...";
         navigator.geolocation.getCurrentPosition(
             (pos) => {
-                locLatInput.value = pos.coords.latitude.toFixed(6); locLonInput.value = pos.coords.longitude.toFixed(6);
-                localMarker.setLatLng([pos.coords.latitude, pos.coords.longitude]); map.setView([pos.coords.latitude, pos.coords.longitude], 14);
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+                locLatInput.value = lat.toFixed(6); locLonInput.value = lon.toFixed(6);
+                localMarker.setLatLng([lat, lon]); map.setView([lat, lon], 14);
                 if (pos.coords.altitude !== null) locHeightInput.value = Math.round(pos.coords.altitude);
-                btn.innerText = "Use GPS"; syncInputsToMap();
+                btn.innerText = "Use GPS"; 
+                syncInputsToMap();
+                
+                // Automatically fetch declination based on the new GPS coordinates
+                fetchNOAADeclination(lat, lon);
             },
             (err) => { alert("GPS Error: " + err.message); btn.innerText = "Use GPS"; }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
