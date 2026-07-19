@@ -18,7 +18,7 @@
         .inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .full-width { grid-column: span 2; }
         label { font-size: 0.8rem; font-weight: bold; color: #495057; }
-        input { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem;}
+        input[type="number"] { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem;}
         
         .input-group { display: flex; gap: 5px; }
         
@@ -44,6 +44,11 @@
         
         #btn-recal { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); right: calc(20px + env(safe-area-inset-right, 20px)); background: #ff9800; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
         
+        /* Zoom Control UI */
+        #zoom-container { display: none; position: absolute; bottom: calc(110px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); width: 80%; max-width: 300px; z-index: 1010; flex-direction: column; align-items: center; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; border: 1px solid #555; }
+        #zoom-container label { color: white; font-weight: bold; margin-bottom: 8px; font-size: 1rem; }
+        #zoom-slider { width: 100%; }
+
         .crosshair { position: absolute; top: 50%; left: 50%; width: 80px; height: 80px; transform: translate(-50%, -50%); z-index: 1005; }
         .crosshair::before, .crosshair::after { content: ''; position: absolute; background: #ff1744; transition: background-color 0.2s; box-shadow: 0 0 4px rgba(0,0,0,0.5);}
         .crosshair::before { top: 0; left: 38px; width: 4px; height: 80px; }
@@ -51,7 +56,7 @@
         .crosshair.aligned::before, .crosshair.aligned::after { background: #00e676; }
 
         /* Fresnel Zones Styles */
-        .fresnel-circle { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 1004; transition: width 0.2s, height 0.2s; }
+        .fresnel-circle { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 1004; transition: width 0.1s, height 0.1s; }
         #fresnel-1 { border: 2px dashed #00e676; } /* 1st Fresnel Zone */
         #fresnel-2 { border: 2px dotted #ffeb3b; } /* 2nd Fresnel Zone */
     </style>
@@ -123,6 +128,12 @@
     <div class="fresnel-circle" id="fresnel-1"></div>
     <div class="fresnel-circle" id="fresnel-2"></div>
     
+    <!-- Zoom Controls -->
+    <div id="zoom-container">
+        <label for="zoom-slider">Zoom: <span id="zoom-val">1.0</span>x</label>
+        <input type="range" id="zoom-slider" min="1" max="10" step="0.1" value="1">
+    </div>
+
     <button id="close-ar">Close</button>
     <button id="btn-recal">Recalibrate</button>
 </div>
@@ -131,8 +142,8 @@
 <script>
     // --- MAP & UI SYNC LOGIC ---
     let localMarker, remoteMarker, targetBearing = 0, targetTilt = 0, isUpdatingFromMap = false;
-    let fresnelAlpha1 = 0, fresnelAlpha2 = 0; // Stored angular sizes in degrees
-    let currentZoom = 1; // Hardware zoom tracking
+    let fresnelAlpha1 = 0, fresnelAlpha2 = 0; 
+    let currentZoom = 1; 
     
     const map = L.map('map').setView([32.17, 34.90], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
@@ -171,35 +182,28 @@
     async function fetchNOAADeclination(lat, lon) {
         const btn = document.getElementById('btn-fetch-dec');
         const originalText = btn.innerText;
-        btn.innerText = "Loading...";
-        btn.disabled = true;
+        btn.innerText = "Loading..."; btn.disabled = true;
 
         try {
             const url = `https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination?lat1=${lat}&lon1=${lon}&key=zNEw7&resultFormat=json`;
             const response = await fetch(url);
-            
             if (!response.ok) throw new Error("NOAA API Error");
             const data = await response.json();
-            
             if (data && data.result && data.result.length > 0) {
-                const declination = data.result[0].declination;
-                magDecInput.value = declination.toFixed(2);
+                magDecInput.value = data.result[0].declination.toFixed(2);
                 calculateAlignment(); 
             }
         } catch (error) {
             console.error("NOAA Fetch Failed:", error);
             alert("Could not fetch magnetic declination. You may be offline or the API rate limit was reached.");
         } finally {
-            btn.innerText = originalText;
-            btn.disabled = false;
+            btn.innerText = originalText; btn.disabled = false;
         }
     }
 
     document.getElementById('btn-fetch-dec').addEventListener('click', () => {
-        const lat = parseFloat(locLatInput.value);
-        const lon = parseFloat(locLonInput.value);
-        if (!isNaN(lat) && !isNaN(lon)) { fetchNOAADeclination(lat, lon); } 
-        else { alert("Please set your Local Site coordinates first."); }
+        const lat = parseFloat(locLatInput.value), lon = parseFloat(locLonInput.value);
+        if (!isNaN(lat) && !isNaN(lon)) { fetchNOAADeclination(lat, lon); } else { alert("Please set your Local Site coordinates first."); }
     });
 
     document.getElementById('btn-gps').addEventListener('click', () => {
@@ -207,14 +211,11 @@
         const btn = document.getElementById('btn-gps'); btn.innerText = "Locating...";
         navigator.geolocation.getCurrentPosition(
             (pos) => {
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
+                const lat = pos.coords.latitude, lon = pos.coords.longitude;
                 locLatInput.value = lat.toFixed(6); locLonInput.value = lon.toFixed(6);
                 localMarker.setLatLng([lat, lon]); map.setView([lat, lon], 14);
                 if (pos.coords.altitude !== null) locHeightInput.value = Math.round(pos.coords.altitude);
-                btn.innerText = "Use GPS"; 
-                syncInputsToMap();
-                fetchNOAADeclination(lat, lon);
+                btn.innerText = "Use GPS"; syncInputsToMap(); fetchNOAADeclination(lat, lon);
             },
             (err) => { alert("GPS Error: " + err.message); btn.innerText = "Use GPS"; }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
         );
@@ -248,7 +249,6 @@
 
         localStorage.setItem('antennaAlignData', JSON.stringify({ locLat: p1.lat, locLon: p1.lng, remLat: p2.lat, remLon: p2.lng, locHeight: h1, remHeight: h2, errorMargin: errorMarginInput.value, magDec: magDecInput.value, frequency: freqMHz }));
 
-        // Bearing and Distance
         const R = 6371e3, φ1 = p1.lat * Math.PI/180, φ2 = p2.lat * Math.PI/180;
         const Δφ = (p2.lat-p1.lat) * Math.PI/180, Δλ = (p2.lng-p1.lng) * Math.PI/180;
         const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
@@ -257,34 +257,27 @@
         const y = Math.sin(Δλ) * Math.cos(φ2), x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
         targetBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 
-        // Tilt
         const Re = (4/3) * R;
         targetTilt = Math.atan2((h2 - h1) - ((distanceMeters * distanceMeters) / (2 * Re)), distanceMeters) * 180 / Math.PI;
 
-        // Fresnel Zone Calculations (Midpoint max radius)
         const lambda = 299.792458 / freqMHz;
-        const r1 = 0.5 * Math.sqrt(lambda * distanceMeters); // 1st Fresnel zone radius
-        const r2 = r1 * Math.SQRT2;                           // 2nd Fresnel zone radius
+        const r1 = 0.5 * Math.sqrt(lambda * distanceMeters);
+        const r2 = r1 * Math.SQRT2;
 
-        // Project physical radius at midpoint to angular radius (degrees) from camera view
         fresnelAlpha1 = Math.atan2(r1, distanceMeters / 2) * (180 / Math.PI);
         fresnelAlpha2 = Math.atan2(r2, distanceMeters / 2) * (180 / Math.PI);
 
-        // Update UI Text
         document.getElementById('calcResults').innerHTML = `Target Bearing: ${targetBearing.toFixed(1)}° (True)<br>Distance: ${(distanceMeters/1000).toFixed(2)} km<br>Target Tilt: ${targetTilt.toFixed(1)}°<br>Fresnel Max Radius - 1st: ${r1.toFixed(1)}m | 2nd: ${r2.toFixed(1)}m`;
         document.getElementById('tgt-b').innerText = targetBearing.toFixed(1); document.getElementById('tgt-t').innerText = targetTilt.toFixed(1);
 
         updateFresnelDisplay();
     }
 
-    // Maps angular degrees to screen pixels dynamically, accounting for hardware zoom
     function updateFresnelDisplay() {
         const effectiveFovDeg = 60 / currentZoom; 
-        
         const minDim = Math.min(window.innerWidth, window.innerHeight);
         const pxPerDeg = minDim / effectiveFovDeg;
 
-        // Calculate diameter in pixels (2 * angular_radius * pixels_per_degree)
         const d1_px = Math.max(2 * fresnelAlpha1 * pxPerDeg, 4);
         const d2_px = Math.max(2 * fresnelAlpha2 * pxPerDeg, 8);
 
@@ -312,7 +305,10 @@
     // --- AR / CAMERA / 3D SPATIAL LOGIC ---
     const btnAlign = document.getElementById('btn-align'), arView = document.getElementById('ar-view'), closeAr = document.getElementById('close-ar'), video = document.getElementById('camera-stream'), crosshair = document.getElementById('crosshair');
     const btnRecal = document.getElementById('btn-recal');
+    const zoomContainer = document.getElementById('zoom-container'), zoomSlider = document.getElementById('zoom-slider'), zoomVal = document.getElementById('zoom-val');
+    
     let stream = null;
+    let videoTrack = null;
     let compassOffset = 0;
     let isCalibrated = false;
     const d2r = Math.PI / 180;
@@ -323,31 +319,54 @@
         document.getElementById('dbg-cal').style.color = "#ff1744";
         
         arView.style.display = 'block';
-        
         requestOrientationPermission();
+        
         try { 
             stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); 
             video.srcObject = stream;
             
-            const t = stream.getVideoTracks()[0]; 
-            const capabilities = t.getCapabilities();
+            videoTrack = stream.getVideoTracks()[0]; 
+            const capabilities = videoTrack.getCapabilities();
             
-            // Apply zoom and read back the actual applied zoom factor
+            // Setup Zoom UI if camera supports it
             if (capabilities.zoom) { 
-                await t.applyConstraints({ advanced: [{ zoom: capabilities.zoom.max }] }); 
-                const settings = t.getSettings();
-                currentZoom = settings.zoom || 1; 
+                zoomContainer.style.display = 'flex';
+                zoomSlider.min = capabilities.zoom.min || 1;
+                zoomSlider.max = capabilities.zoom.max || 10;
+                zoomSlider.step = capabilities.zoom.step || 0.1;
+                
+                // Start at optical max (e.g. 5) or hardware max if lower
+                const startZoom = Math.min(capabilities.zoom.max, 5);
+                await videoTrack.applyConstraints({ advanced: [{ zoom: startZoom }] }); 
+                
+                const settings = videoTrack.getSettings();
+                currentZoom = settings.zoom || startZoom; 
+                zoomSlider.value = currentZoom;
+                zoomVal.innerText = currentZoom.toFixed(1);
             } else {
+                zoomContainer.style.display = 'none';
                 currentZoom = 1;
             }
             
-            updateFresnelDisplay(); // Trigger layout with new zoom factor
-            
+            updateFresnelDisplay(); 
         } catch (err) { alert("Camera error: " + err.message); }
     });
 
+    // Handle Slider Changes
+    zoomSlider.addEventListener('input', async (e) => {
+        if (!videoTrack) return;
+        const newZoom = parseFloat(e.target.value);
+        try {
+            await videoTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
+            currentZoom = newZoom;
+            zoomVal.innerText = newZoom.toFixed(1);
+            updateFresnelDisplay(); // Scale circles in real-time
+        } catch(err) { console.error("Zoom constraint failed", err); }
+    });
+
     closeAr.addEventListener('click', () => {
-        arView.style.display = 'none'; if (stream) stream.getTracks().forEach(t => t.stop());
+        arView.style.display = 'none'; 
+        if (stream) stream.getTracks().forEach(t => t.stop());
         window.removeEventListener('deviceorientation', handleOrientation); window.removeEventListener('deviceorientationabsolute', handleOrientation);
     });
 
@@ -377,14 +396,11 @@
             if (Math.abs(beta) < 15 && Math.abs(gamma) < 15) {
                 compassOffset = event.webkitCompassHeading + alpha;
                 isCalibrated = true;
-                
-                let dbg = document.getElementById('dbg-cal');
-                dbg.innerText = "LOCKED! (You may raise device)";
-                dbg.style.color = "#00e676";
+                document.getElementById('dbg-cal').innerText = "LOCKED! (You may raise device)";
+                document.getElementById('dbg-cal').style.color = "#00e676";
             } else {
-                let dbg = document.getElementById('dbg-cal');
-                dbg.innerText = "Lay device flat to calibrate...";
-                dbg.style.color = "#ff1744";
+                document.getElementById('dbg-cal').innerText = "Lay device flat to calibrate...";
+                document.getElementById('dbg-cal').style.color = "#ff1744";
             }
         } else if (!isCalibrated && event.alpha != null && event.webkitCompassHeading == null) {
             compassOffset = 0;
@@ -393,12 +409,9 @@
             document.getElementById('dbg-cal').style.color = "#00e676";
         }
 
-        let cA = Math.cos(alpha * d2r);
-        let sA = Math.sin(alpha * d2r);
-        let cB = Math.cos(beta * d2r);
-        let sB = Math.sin(beta * d2r);
-        let cG = Math.cos(gamma * d2r);
-        let sG = Math.sin(gamma * d2r);
+        let cA = Math.cos(alpha * d2r), sA = Math.sin(alpha * d2r);
+        let cB = Math.cos(beta * d2r), sB = Math.sin(beta * d2r);
+        let cG = Math.cos(gamma * d2r), sG = Math.sin(gamma * d2r);
 
         let vX = -cA * sG - sA * sB * cG;
         let vY = -sA * sG + cA * sB * cG;
