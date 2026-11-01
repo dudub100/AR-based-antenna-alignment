@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Antenna Alignment Tool</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 10px; box-sizing: border-box; background: #f4f4f9; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h2 { text-align: center; font-size: 1.2rem; margin-top: 0; }
+        #map { height: 300px; width: 100%; margin-bottom: 15px; border-radius: 4px; z-index: 1;}
+        
+        .site-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 10px; margin-bottom: 15px; }
+        .site-card h3 { margin: 0 0 10px 0; font-size: 1rem; display: flex; justify-content: space-between; align-items: center; }
+        .inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .full-width { grid-column: span 2; }
+        label { font-size: 0.8rem; font-weight: bold; color: #495057; }
+        input[type="number"] { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem;}
+        
+        .input-group { display: flex; gap: 5px; }
+        
+        button.action-btn { width: 100%; padding: 15px; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; font-weight: bold; margin-bottom: 10px;}
+        button.action-btn:hover { background: #0056b3; }
+        button.gps-btn { padding: 5px 10px; background: #28a745; color: white; border: none; border-radius: 4px; font-size: 0.8rem; cursor: pointer; }
+        button.share-btn { width: 100%; padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 4px; font-size: 0.9rem; cursor: pointer; font-weight: bold; margin-top: 10px;}
+        
+        .results { background: #eef; padding: 10px; border-radius: 4px; margin-bottom: 15px; font-weight: bold; text-align: center; font-size: 0.95rem; border: 1px solid #b8daff; color: #004085; line-height: 1.4;}
+        .hint { font-size: 0.75rem; color: #6c757d; font-weight: normal; }
+        
+        /* AR Camera View Styles */
+        #ar-view { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: black; z-index: 1000; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        
+        .overlay-data { position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); left: 20px; color: #fff; font-family: monospace; font-size: 1rem; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; border: 1px solid #555; z-index: 1010; max-width: 55%; }
+        .overlay-data span { font-weight: bold; }
+        .val-target { color: #ffeb3b; } 
+        .val-actual { color: #00e676; } 
+        .val-glare { color: #ff7be5; font-size: 0.85rem; }
+
+        #debug-panel { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); left: 20px; color: #0ff; font-family: monospace; font-size: 0.8rem; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px; border: 1px solid #0ff; text-align: left; z-index: 1010; max-width: 45%; }
+        
+        #close-ar { position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); background: #dc3545; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
+        
+        #btn-recal { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); background: #ff9800; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
+        
+        /* Zoom Control UI */
+        #zoom-container { display: none; position: absolute; bottom: calc(110px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); width: 80%; max-width: 300px; z-index: 1010; flex-direction: column; align-items: center; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; border: 1px solid #555; }
+        #zoom-container label { color: white; font-weight: bold; margin-bottom: 8px; font-size: 1rem; }
+        #zoom-slider { width: 100%; }
+
+        .crosshair { position: absolute; top: 50%; left: 50%; width: 80px; height: 80px; transform: translate(-50%, -50%); z-index: 1005; }
+        .crosshair::before, .crosshair::after { content: ''; position: absolute; background: #ff1744; transition: background-color 0.2s; box-shadow: 0 0 4px rgba(0,0,0,0.5);}
+        .crosshair::before { top: 0; left: 38px; width: 4px; height: 80px; }
+        .crosshair::after { top: 38px; left: 0; width: 80px; height: 4px; }
+        .crosshair.aligned::before, .crosshair.aligned::after { background: #00e676; }
+
+        /* Fresnel Zones Styles */
+        .fresnel-circle { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; z-index: 1004; transition: width 0.1s, height 0.1s; }
+        #fresnel-1 { border: 2px dashed #00e676; } /* 1st Fresnel Zone */
+        #fresnel-2 { border: 2px dotted #ffeb3b; } /* 2nd Fresnel Zone */
+
+        /* Glare Detection */
+        #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1007; }
+        #glare-controls { position: absolute; top: calc(80px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 8px; z-index: 1010; }
+        #glare-controls button { padding: 10px 14px; border: none; border-radius: 8px; font-weight: bold; font-size: 0.85rem; color: #fff; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
+        #btn-glare { background: #6f42c1; }
+        #btn-glare.active { background: #e83e8c; }
+        #btn-glare-sync { background: #00a86b; display: none; }
+        #btn-glare-clear { background: #555; display: none; }
+        #glare-panel { display: none; position: absolute; bottom: calc(195px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); width: 80%; max-width: 300px; box-sizing: border-box; background: rgba(0,0,0,0.65); border: 1px solid #e83e8c; padding: 10px 12px; border-radius: 8px; color: #fff; font-size: 0.85rem; z-index: 1010; }
+        #glare-panel .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+        #glare-panel label { color: #fff; font-size: 0.85rem; }
+        #glare-threshold { flex: 1; }
+        #glare-flashes { width: 64px; padding: 4px; }
+        #glare-status { font-family: monospace; color: #ff9be0; }
+        #glare-banner { display: none; position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%); background: rgba(232,62,140,0.92); color: #fff; font-weight: bold; font-size: 1.3rem; padding: 12px 24px; border-radius: 10px; z-index: 1011; pointer-events: none; white-space: nowrap; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Antenna Alignment</h2>
+    
+    <div id="map"></div>
+    
+    <div class="site-card">
+        <h3>Local Site <button id="btn-gps" class="gps-btn">Use GPS</button></h3>
+        <div class="inputs">
+            <div><label>Latitude</label><input type="number" id="locLat" step="any"></div>
+            <div><label>Longitude</label><input type="number" id="locLon" step="any"></div>
+            <div class="full-width"><label>Elevation (AMSL + AGL in m)</label><input type="number" id="localHeight" value="100"></div>
+            <div class="full-width">
+                <label>Magnetic Declination (°)</label>
+                <div class="input-group">
+                    <input type="number" id="magDec" value="6.0" step="0.1">
+                    <button id="btn-fetch-dec" class="gps-btn" style="white-space: nowrap; background: #6c757d;">Auto Fetch</button>
+                </div>
+            </div>
+        </div>
+        <button id="btn-share" class="share-btn">Share My Location with Remote Site</button>
+    </div>
+
+    <div class="site-card">
+        <h3>Remote Site</h3>
+        <div class="inputs">
+            <div><label>Latitude</label><input type="number" id="remLat" step="any"></div>
+            <div><label>Longitude</label><input type="number" id="remLon" step="any"></div>
+            <div class="full-width"><label>Elevation (AMSL + AGL in m)</label><input type="number" id="remoteHeight" value="150"></div>
+        </div>
+    </div>
+
+    <div class="site-card">
+        <div class="inputs">
+            <div><label>Alignment Error Margin (°)</label><input type="number" id="errorMargin" value="1" step="0.5"></div>
+            <div><label>Frequency (MHz)</label><input type="number" id="frequency" value="5800" step="1"></div>
+            <div class="full-width">
+                <label>Camera field of view at 1x, short side of image (°)</label>
+                <input type="number" id="camFov" value="50" step="0.5" min="10" max="120">
+                <span class="hint">Used to place the glare marker and Fresnel circles. Typical phone main camera: 45–55°.</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="results" id="calcResults">
+        Target Bearing: --°<br>Distance: -- km<br>Target Tilt: --°<br>Fresnel R1: --m | R2: --m
+    </div>
+
+    <button id="btn-align" class="action-btn">Align with Camera</button>
+</div>
+
+<div id="ar-view">
+    <video id="camera-stream" autoplay playsinline muted></video>
+    
+    <div class="overlay-data" id="ar-data">
+        Target Bearing: <span class="val-target" id="tgt-b"></span>°<br>
+        Actual Bearing: <span class="val-actual" id="act-b">--</span>°<br>
+        <hr style="border-color: #555;">
+        Target Tilt: <span class="val-target" id="tgt-t"></span>°<br>
+        Actual Tilt: <span class="val-actual" id="act-t">--</span>°
+        <hr style="border-color: #555;">
+        Glare: <span class="val-glare" id="glr-info">off</span>
+    </div>
+
+    <div id="debug-panel">
+        Camera Calibrated: <span id="dbg-cal">No (Lay device flat)</span>
+    </div>
+    
+    <!-- AR Elements -->
+    <div class="crosshair" id="crosshair"></div>
+    <div class="fresnel-circle" id="fresnel-1"></div>
+    <div class="fresnel-circle" id="fresnel-2"></div>
+    <canvas id="overlay-canvas"></canvas>
+    <div id="glare-banner">Glare detected</div>
+
+    <!-- Glare Controls -->
+    <div id="glare-controls">
+        <button id="btn-glare">Glare: Off</button>
+        <button id="btn-glare-sync">Sync to Glare</button>
+        <button id="btn-glare-clear">Clear Glare</button>
+    </div>
+    <div id="glare-panel">
+        <div class="row">
+            <label for="glare-threshold">Brightness</label>
+            <input type="range" id="glare-threshold" min="180" max="254" step="1" value="235">
+            <span id="glare-threshold-val">235</span>
+        </div>
+        <div class="row">
+            <label for="glare-flashes">Flashes to confirm</label>
+            <input type="number" id="glare-flashes" min="1" max="8" step="1" value="3">
+        </div>
+        <div id="glare-status">Scanning…</div>
+    </div>
+    
+    <!-- Zoom Controls -->
+    <div id="zoom-container">
+        <label for="zoom-slider">Zoom: <span id="zoom-val">1.0</span>x</label>
+        <input type="range" id="zoom-slider" min="1" max="10" step="0.1" value="1">
+    </div>
+
+    <button id="close-ar">Close</button>
+    <button id="btn-recal">Recalibrate</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const d2r = Math.PI / 180;
+
+    // --- MAP & UI SYNC LOGIC ---
+    let localMarker, remoteMarker, targetBearing = 0, targetTilt = 0, isUpdatingFromMap = false;
+    let fresnelAlpha1 = 0, fresnelAlpha2 = 0; 
+    let currentZoom = 1; 
+
+    const arView = document.getElementById('ar-view'), video = document.getElementById('camera-stream');
+    
+    const map = L.map('map').setView([32.17, 34.90], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+    localMarker = L.marker([32.17, 34.90], {draggable: true}).addTo(map).bindPopup("<b>Local Site</b>").openPopup();
+    remoteMarker = L.marker([32.20, 35.00], {draggable: true}).addTo(map).bindPopup("<b>Remote Site</b>");
+
+    const locLatInput = document.getElementById('locLat'), locLonInput = document.getElementById('locLon');
+    const remLatInput = document.getElementById('remLat'), remLonInput = document.getElementById('remLon');
+    const locHeightInput = document.getElementById('localHeight'), remHeightInput = document.getElementById('remoteHeight');
+    const magDecInput = document.getElementById('magDec'), errorMarginInput = document.getElementById('errorMargin');
+    const freqInput = document.getElementById('frequency'), fovInput = document.getElementById('camFov');
+
+    function syncMapToInputs() {
+        isUpdatingFromMap = true;
+        locLatInput.value = localMarker.getLatLng().lat.toFixed(6); locLonInput.value = localMarker.getLatLng().lng.toFixed(6);
+        remLatInput.value = remoteMarker.getLatLng().lat.toFixed(6); remLonInput.value = remoteMarker.getLatLng().lng.toFixed(6);
+        isUpdatingFromMap = false; calculateAlignment();
+    }
+
+    localMarker.on('dragend', syncMapToInputs); remoteMarker.on('dragend', syncMapToInputs);
+
+    function syncInputsToMap() {
+        if (isUpdatingFromMap) return;
+        const lat1 = parseFloat(locLatInput.value), lon1 = parseFloat(locLonInput.value);
+        const lat2 = parseFloat(remLatInput.value), lon2 = parseFloat(remLonInput.value);
+        if (!isNaN(lat1) && !isNaN(lon1)) localMarker.setLatLng([lat1, lon1]);
+        if (!isNaN(lat2) && !isNaN(lon2)) remoteMarker.setLatLng([lat2, lon2]);
+        calculateAlignment();
+    }
+
+    [locLatInput, locLonInput, remLatInput, remLonInput].forEach(i => i.addEventListener('input', syncInputsToMap));
+    [locHeightInput, remHeightInput, errorMarginInput, magDecInput, freqInput, fovInput].forEach(i => i.addEventListener('input', calculateAlignment));
+
+    // --- NOAA API Integration ---
+    async function fetchNOAADeclination(lat, lon) {
+        const btn = document.getElementById('btn-fetch-dec');
+        const originalText = btn.innerText;
+        btn.innerText = "Loading..."; btn.disabled = true;
+
+        try {
+            const url = `https://www.ngdc.noaa.gov/geomag-web/calculators/calculateDeclination?lat1=${lat}&lon1=${lon}&key=zNEw7&resultFormat=json`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("NOAA API Error");
+            const data = await response.json();
+            if (data && data.result && data.result.length > 0) {
+                magDecInput.value = data.result[0].declination.toFixed(2);
+                calculateAlignment(); 
+            }
+        } catch (error) {
+            console.error("NOAA Fetch Failed:", error);
+            alert("Could not fetch magnetic declination. You may be offline or the API rate limit was reached.");
+        } finally {
+            btn.innerText = originalText; btn.disabled = false;
+        }
+    }
+
+    document.getElementById('btn-fetch-dec').addEventListener('click', () => {
+        const lat = parseFloat(locLatInput.value), lon = parseFloat(locLonInput.value);
+        if (!isNaN(lat) && !isNaN(lon)) { fetchNOAADeclination(lat, lon); } else { alert("Please set your Local Site coordinates first."); }
+    });
+
+    document.getElementById('btn-gps').addEventListener('click', () => {
+        if (!navigator.geolocation) return alert("Geolocation not supported.");
+        const btn = document.getElementById('btn-gps'); btn.innerText = "Locating...";
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const lat = pos.coords.latitude, lon = pos.coords.longitude;
+                locLatInput.value = lat.toFixed(6); locLonInput.value = lon.toFixed(6);
+                localMarker.setLatLng([lat, lon]); map.setView([lat, lon], 14);
+                if (pos.coords.altitude !== null) locHeightInput.value = Math.round(pos.coords.altitude);
+                btn.innerText = "Use GPS"; syncInputsToMap(); fetchNOAADeclination(lat, lon);
+            },
+            (err) => { alert("GPS Error: " + err.message); btn.innerText = "Use GPS"; }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    });
+
+    document.getElementById('btn-share').addEventListener('click', async () => {
+        const lat = locLatInput.value, lon = locLonInput.value, h = locHeightInput.value;
+        if (!lat || !lon) return alert("Please set your Local Site coordinates first.");
+        const url = new URL(window.location.href.split('?')[0]); 
+        url.searchParams.set('remLat', lat); url.searchParams.set('remLon', lon); url.searchParams.set('remHeight', h);
+        if (navigator.share) { try { await navigator.share({title: 'Antenna Target', url: url.toString()}); } catch(e){} } 
+        else { navigator.clipboard.writeText(url.toString()); alert("Link copied!"); }
+    });
+
+    function checkIncomingSharedLink() {
+        const params = new URLSearchParams(window.location.search);
+        let loaded = false;
+        if (params.has('remLat') && params.has('remLon')) {
+            remLatInput.value = params.get('remLat'); remLonInput.value = params.get('remLon');
+            if (params.has('remHeight')) remHeightInput.value = params.get('remHeight');
+            remoteMarker.setLatLng([parseFloat(params.get('remLat')), parseFloat(params.get('remLon'))]);
+            loaded = true; window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        return loaded;
+    }
+
+    function calculateAlignment() {
+        const p1 = localMarker.getLatLng(), p2 = remoteMarker.getLatLng();
+        const h1 = parseFloat(locHeightInput.value) || 0, h2 = parseFloat(remHeightInput.value) || 0;
+        const freqMHz = parseFloat(freqInput.value) || 5800;
+
+        try {
+            localStorage.setItem('antennaAlignData', JSON.stringify({ locLat: p1.lat, locLon: p1.lng, remLat: p2.lat, remLon: p2.lng, locHeight: h1, remHeight: h2, errorMargin: errorMarginInput.value, magDec: magDecInput.value, frequency: freqMHz, camFov: fovInput.value }));
+        } catch (e) { /* storage unavailable (private mode etc.) */ }
+
+        const R = 6371e3, φ1 = p1.lat * Math.PI/180, φ2 = p2.lat * Math.PI/180;
+        const Δφ = (p2.lat-p1.lat) * Math.PI/180, Δλ = (p2.lng-p1.lng) * Math.PI/180;
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const distanceMeters = R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+
+        const y = Math.sin(Δλ) * Math.cos(φ2), x = Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+        targetBearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+        const Re = (4/3) * R;
+        targetTilt = Math.atan2((h2 - h1) - ((distanceMeters * distanceMeters) / (2 * Re)), distanceMeters) * 180 / Math.PI;
+
+        const lambda = 299.792458 / freqMHz;
+        const r1 = 0.5 * Math.sqrt(lambda * distanceMeters);
+        const r2 = r1 * Math.SQRT2;
+
+        fresnelAlpha1 = Math.atan2(r1, distanceMeters / 2) * (180 / Math.PI);
+        fresnelAlpha2 = Math.atan2(r2, distanceMeters / 2) * (180 / Math.PI);
+
+        document.getElementById('calcResults').innerHTML = `Target Bearing: ${targetBearing.toFixed(1)}° (True)<br>Distance: ${(distanceMeters/1000).toFixed(2)} km<br>Target Tilt: ${targetTilt.toFixed(1)}°<br>Fresnel Max Radius - 1st: ${r1.toFixed(1)}m | 2nd: ${r2.toFixed(1)}m`;
+        document.getElementById('tgt-b').innerText = targetBearing.toFixed(1); document.getElementById('tgt-t').innerText = targetTilt.toFixed(1);
+
+        updateFresnelDisplay();
+    }
+
+    // --- CAMERA MODEL (shared by Fresnel circles and glare tracking) ---
+    // Pinhole model: focal length in video pixels derived from the FOV across the short side,
+    // scaled by zoom. Screen mapping follows the video's object-fit: cover.
+    function getCam() {
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const W = arView.clientWidth, H = arView.clientHeight;
+        if (!vw || !vh || !W || !H) return null;
+        const fov = Math.min(Math.max(parseFloat(fovInput.value) || 50, 5), 150);
+        const f = (Math.min(vw, vh) / 2) / Math.tan(fov / 2 * d2r) * currentZoom;
+        const s = Math.max(W / vw, H / vh);
+        return { vw, vh, f, W, H, s };
+    }
+
+    function updateFresnelDisplay() {
+        const cam = getCam();
+        let d1, d2;
+        if (cam) {
+            const k = cam.f * cam.s; // focal length in screen pixels
+            d1 = 2 * k * Math.tan(fresnelAlpha1 * d2r);
+            d2 = 2 * k * Math.tan(fresnelAlpha2 * d2r);
+        } else {
+            const effectiveFovDeg = (parseFloat(fovInput.value) || 50) / currentZoom;
+            const pxPerDeg = Math.min(window.innerWidth, window.innerHeight) / effectiveFovDeg;
+            d1 = 2 * fresnelAlpha1 * pxPerDeg;
+            d2 = 2 * fresnelAlpha2 * pxPerDeg;
+        }
+        d1 = Math.max(d1, 4); d2 = Math.max(d2, 8);
+
+        document.getElementById('fresnel-1').style.width = d1 + 'px';
+        document.getElementById('fresnel-1').style.height = d1 + 'px';
+        document.getElementById('fresnel-2').style.width = d2 + 'px';
+        document.getElementById('fresnel-2').style.height = d2 + 'px';
+    }
+
+    window.addEventListener('resize', updateFresnelDisplay);
+    video.addEventListener('loadedmetadata', updateFresnelDisplay);
+
+    window.onload = () => {
+        const loadedFromLink = checkIncomingSharedLink();
+        try { const d = JSON.parse(localStorage.getItem('antennaAlignData'));
+            if (d) { if(d.locLat){localMarker.setLatLng([d.locLat, d.locLon]); map.setView([d.locLat, d.locLon], 10);}
+                if(d.locHeight != null)locHeightInput.value = d.locHeight; 
+                if(d.errorMargin)errorMarginInput.value = d.errorMargin; 
+                if(d.magDec != null)magDecInput.value = d.magDec;
+                if(d.frequency)freqInput.value = d.frequency;
+                if(d.camFov)fovInput.value = d.camFov;
+                if(!loadedFromLink) { if(d.remLat)remoteMarker.setLatLng([d.remLat, d.remLon]); if(d.remHeight != null)remHeightInput.value = d.remHeight; } }
+        } catch(e){} syncMapToInputs();
+        if(loadedFromLink) { map.fitBounds(L.latLngBounds(localMarker.getLatLng(), remoteMarker.getLatLng()).pad(0.1)); }
+    };
+
+    // --- AR / CAMERA / 3D SPATIAL LOGIC ---
+    const btnAlign = document.getElementById('btn-align'), closeAr = document.getElementById('close-ar'), crosshair = document.getElementById('crosshair');
+    const btnRecal = document.getElementById('btn-recal');
+    const zoomContainer = document.getElementById('zoom-container'), zoomSlider = document.getElementById('zoom-slider'), zoomVal = document.getElementById('zoom-val');
+    const dbgCal = document.getElementById('dbg-cal');
+    
+    let stream = null;
+    let videoTrack = null;
+    let compassOffset = 0;
+    let isCalibrated = false;
+    let arActive = false;
+    let absSeen = false;                         // Android: once absolute events arrive, ignore relative ones
+    let ori = { a: 0, b: 0, g: 0, valid: false }; // latest device orientation
+
+    function setCalStatus(text, color) { dbgCal.innerText = text; dbgCal.style.color = color; }
+
+    btnAlign.addEventListener('click', async () => {
+        isCalibrated = false;
+        absSeen = false;
+        ori.valid = false;
+        setCalStatus("Lay device flat to calibrate...", "#ff1744");
+        
+        arView.style.display = 'block';
+        arActive = true;
+        resetGlare();
+        requestAnimationFrame(arLoop);
+        requestOrientationPermission();
+        
+        try { 
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }); 
+            video.srcObject = stream;
+            
+            videoTrack = stream.getVideoTracks()[0]; 
+            const capabilities = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+            
+            // Setup Zoom UI if camera supports it
+            if (capabilities.zoom) { 
+                zoomContainer.style.display = 'flex';
+                zoomSlider.min = capabilities.zoom.min || 1;
+                zoomSlider.max = capabilities.zoom.max || 10;
+                zoomSlider.step = capabilities.zoom.step || 0.1;
+                
+                // Start at optical max (e.g. 5) or hardware max if lower
+                const startZoom = Math.min(capabilities.zoom.max, 5);
+                await videoTrack.applyConstraints({ advanced: [{ zoom: startZoom }] }); 
+                
+                const settings = videoTrack.getSettings();
+                currentZoom = settings.zoom || startZoom; 
+                zoomSlider.value = currentZoom;
+                zoomVal.innerText = currentZoom.toFixed(1);
+            } else {
+                zoomContainer.style.display = 'none';
+                currentZoom = 1;
+            }
+            
+            updateFresnelDisplay(); 
+        } catch (err) { alert("Camera error: " + err.message); }
+    });
+
+    // Handle Slider Changes
+    zoomSlider.addEventListener('input', async (e) => {
+        if (!videoTrack) return;
+        const newZoom = parseFloat(e.target.value);
+        try {
+            await videoTrack.applyConstraints({ advanced: [{ zoom: newZoom }] });
+            currentZoom = newZoom;
+            zoomVal.innerText = newZoom.toFixed(1);
+            updateFresnelDisplay(); // Scale circles in real-time
+        } catch(err) { console.error("Zoom constraint failed", err); }
+    });
+
+    closeAr.addEventListener('click', () => {
+        arView.style.display = 'none'; 
+        arActive = false;
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        // Capture flag must match the one used in addEventListener, otherwise nothing is removed
+        window.removeEventListener('deviceorientation', handleOrientation, true);
+        window.removeEventListener('deviceorientationabsolute', handleOrientation, true);
+        setGlareMode(false);
+    });
+
+    btnRecal.addEventListener('click', () => {
+        isCalibrated = false;
+        setCalStatus("Lay device flat to calibrate...", "#ff1744");
+    });
+
+    function requestOrientationPermission() {
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            DeviceOrientationEvent.requestPermission().then(state => { 
+                if (state === 'granted') { window.addEventListener('deviceorientation', handleOrientation, true); } 
+            }).catch(console.error);
+        } else { 
+            window.addEventListener('deviceorientationabsolute', handleOrientation, true); 
+            window.addEventListener('deviceorientation', handleOrientation, true); 
+        }
+    }
+
+    function handleOrientation(event) {
+        // Android fires both events; mixing them makes the heading jump between two frames of reference
+        if (event.type === 'deviceorientationabsolute') absSeen = true;
+        else if (absSeen) return;
+
+        let alpha = event.alpha || 0;
+        let beta = event.beta || 0;
+        let gamma = event.gamma || 0;
+        ori = { a: alpha, b: beta, g: gamma, valid: event.alpha != null };
+
+        if (!isCalibrated && event.webkitCompassHeading != null) {
+            if (Math.abs(beta) < 15 && Math.abs(gamma) < 15) {
+                compassOffset = event.webkitCompassHeading + alpha;
+                isCalibrated = true;
+                setCalStatus("LOCKED! (You may raise device)", "#00e676");
+            } else {
+                setCalStatus("Lay device flat to calibrate...", "#ff1744");
+            }
+        } else if (!isCalibrated && event.alpha != null && event.webkitCompassHeading == null) {
+            if (event.absolute) {
+                compassOffset = 0;
+                isCalibrated = true;
+                setCalStatus("Android Locked", "#00e676");
+            } else {
+                setCalStatus("No compass heading. Use Sync to Glare.", "#ff9800");
+            }
+        }
+
+        let cA = Math.cos(alpha * d2r), sA = Math.sin(alpha * d2r);
+        let cB = Math.cos(beta * d2r), sB = Math.sin(beta * d2r);
+        let cG = Math.cos(gamma * d2r), sG = Math.sin(gamma * d2r);
+
+        let vX = -cA * sG - sA * sB * cG;
+        let vY = -sA * sG + cA * sB * cG;
+        let vZ = -cB * cG;
+
+        let unanchoredHeading = Math.atan2(vX, vY) / d2r;
+
+        const declination = parseFloat(magDecInput.value) || 0;
+        let finalBearing = (unanchoredHeading + compassOffset + declination) % 360;
+        if (finalBearing < 0) finalBearing += 360; 
+
+        let finalTilt = Math.asin(vZ) / d2r;
+
+        document.getElementById('act-b').innerText = finalBearing.toFixed(1);
+        document.getElementById('act-t').innerText = finalTilt.toFixed(1);
+
+        const margin = parseFloat(errorMarginInput.value) || 1;
+        let bDiff = Math.abs(finalBearing - targetBearing);
+        bDiff = bDiff > 180 ? 360 - bDiff : bDiff;
+        let tDiff = Math.abs(finalTilt - targetTilt);
+
+        if (bDiff <= margin && tDiff <= margin && isCalibrated) {
+            crosshair.classList.add('aligned');
+        } else {
+            crosshair.classList.remove('aligned');
+        }
+    }
+
+    // =====================================================================
+    // --- GLARE DETECTION & TRACKING ---
+    // Detection: small, very bright blobs with dark surroundings that blink
+    // on and off (the mirror at the remote site being wobbled).
+    // Tracking: every detection is converted to a direction in the world
+    // frame using the orientation sensors, so the marker stays on the glare
+    // when the camera moves and even while the glare is dark.
+    // =====================================================================
+    const PROC_W = 160;          // processing width in pixels
+    const CONTRAST = 45;         // surroundings must be this much darker than the threshold
+    const MAX_SPEED = 20;        // deg/s; above this, detection pauses (frame/sensor timing mismatch)
+    const DETECT_INTERVAL = 66;  // ms between processed frames (~15 fps)
+    const OFF_FRAMES = 2;        // consecutive misses before a blob counts as "off"
+    const TRACK_TTL = 8000;      // ms an unconfirmed candidate is remembered
+
+    const btnGlare = document.getElementById('btn-glare');
+    const btnGlareSync = document.getElementById('btn-glare-sync');
+    const btnGlareClear = document.getElementById('btn-glare-clear');
+    const glarePanel = document.getElementById('glare-panel');
+    const glareStatus = document.getElementById('glare-status');
+    const glareInfo = document.getElementById('glr-info');
+    const glareBanner = document.getElementById('glare-banner');
+    const thrSlider = document.getElementById('glare-threshold'), thrVal = document.getElementById('glare-threshold-val');
+    const flashesInput = document.getElementById('glare-flashes');
+    const overlay = document.getElementById('overlay-canvas'), octx = overlay.getContext('2d');
+    const procCanvas = document.createElement('canvas');
+    const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+
+    let glareMode = false, tracks = [], lockedGlare = null, audioCtx = null;
+    let lum = null, labels = null, stack = null;
+    let prevFwd = null, prevTs = 0, angSpeed = 0, lastDetect = 0, lastInfo = 0, bannerTimer = null;
+
+    thrSlider.addEventListener('input', () => { thrVal.innerText = thrSlider.value; });
+
+    // Rotation matrix (row-major) from W3C device orientation: device frame -> Earth frame (x East, y North, z Up)
+    function rotMatrix(a, b, g) {
+        const cA = Math.cos(a * d2r), sA = Math.sin(a * d2r);
+        const cB = Math.cos(b * d2r), sB = Math.sin(b * d2r);
+        const cG = Math.cos(g * d2r), sG = Math.sin(g * d2r);
+        return [
+            cA * cG - sA * sB * sG, -cB * sA, cG * sA * sB + cA * sG,
+            cG * sA + cA * sB * sG,  cA * cB, sA * sG - cA * cG * sB,
+            -cB * sG,                sB,      cB * cG
+        ];
+    }
+    const devToWorld = (R, v) => [R[0]*v[0] + R[1]*v[1] + R[2]*v[2], R[3]*v[0] + R[4]*v[1] + R[5]*v[2], R[6]*v[0] + R[7]*v[1] + R[8]*v[2]];
+    const worldToDev = (R, w) => [R[0]*w[0] + R[3]*w[1] + R[6]*w[2], R[1]*w[0] + R[4]*w[1] + R[7]*w[2], R[2]*w[0] + R[5]*w[1] + R[8]*w[2]];
+    const normalize = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
+    const angleBetween = (u, v) => Math.acos(Math.min(1, Math.max(-1, u[0]*v[0] + u[1]*v[1] + u[2]*v[2]))) / d2r;
+
+    // Video pixel -> ray in device frame (back camera looks along -Z, screen up is +Y; assumes portrait)
+    function videoToRay(cam, vx, vy) { return [vx - cam.vw / 2, -(vy - cam.vh / 2), -cam.f]; }
+
+    // World direction -> video and screen pixels
+    function projectWorld(cam, R, w) {
+        const dev = worldToDev(R, w);
+        if (dev[2] >= -1e-6) return { behind: true, dev };
+        const vx = cam.vw / 2 + cam.f * dev[0] / -dev[2];
+        const vy = cam.vh / 2 - cam.f * dev[1] / -dev[2];
+        return { behind: false, dev, vx, vy, sx: (vx - cam.vw / 2) * cam.s + cam.W / 2, sy: (vy - cam.vh / 2) * cam.s + cam.H / 2 };
+    }
+
+    function detectBlobs(cam) {
+        const pw = PROC_W, ph = Math.max(1, Math.round(PROC_W * cam.vh / cam.vw));
+        if (procCanvas.width !== pw || procCanvas.height !== ph || !lum) {
+            procCanvas.width = pw; procCanvas.height = ph;
+            lum = new Uint8Array(pw * ph); labels = new Int32Array(pw * ph); stack = new Int32Array(pw * ph);
+        }
+        procCtx.drawImage(video, 0, 0, pw, ph);
+        let img;
+        try { img = procCtx.getImageData(0, 0, pw, ph).data; } catch (e) { return []; }
+
+        const n = pw * ph, T = parseInt(thrSlider.value, 10);
+        for (let i = 0, j = 0; i < n; i++, j += 4) lum[i] = (img[j] * 77 + img[j + 1] * 150 + img[j + 2] * 29) >> 8;
+        labels.fill(0);
+
+        const maxArea = Math.max(4, Math.floor(n * 0.015)); // big bright areas = sky/sun, not a mirror
+        const blobs = [];
+        let next = 0;
+        for (let i = 0; i < n; i++) {
+            if (lum[i] < T || labels[i]) continue;
+            next++;
+            let sp = 0; stack[sp++] = i; labels[i] = next;
+            let area = 0, sw = 0, sx = 0, sy = 0, x0 = pw, x1 = 0, y0 = ph, y1 = 0;
+            while (sp > 0) {
+                const p = stack[--sp], x = p % pw, y = (p / pw) | 0;
+                const w = lum[p] - T + 1;
+                area++; sw += w; sx += w * x; sy += w * y;
+                if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+                for (let dy = -1; dy <= 1; dy++) {
+                    const yy = y + dy; if (yy < 0 || yy >= ph) continue;
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (!dx && !dy) continue;
+                        const xx = x + dx; if (xx < 0 || xx >= pw) continue;
+                        const q = yy * pw + xx;
+                        if (lum[q] >= T && !labels[q]) { labels[q] = next; stack[sp++] = q; }
+                    }
+                }
+            }
+            if (area > maxArea) continue;
+            const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+            if (Math.max(bw, bh) > 3 * Math.min(bw, bh) + 2) continue; // long streaks are edges, not glare
+            blobs.push({ label: next, cx: sx / sw, cy: sy / sw, x0, x1, y0, y1 });
+        }
+
+        // Keep only blobs whose surroundings are clearly darker (rejects bright sky patches, white walls)
+        const out = [];
+        for (const b of blobs) {
+            if (out.length >= 25) break;
+            const m = Math.max(3, Math.max(b.x1 - b.x0, b.y1 - b.y0) + 2);
+            let s = 0, c = 0;
+            for (let y = Math.max(0, b.y0 - m); y <= Math.min(ph - 1, b.y1 + m); y++) {
+                for (let x = Math.max(0, b.x0 - m); x <= Math.min(pw - 1, b.x1 + m); x++) {
+                    const q = y * pw + x;
+                    if (labels[q] === b.label) continue;
+                    s += lum[q]; c++;
+                }
+            }
+            if (c && s / c > T - CONTRAST) continue;
+            out.push({ vx: (b.cx + 0.5) * cam.vw / pw, vy: (b.cy + 0.5) * cam.vh / ph });
+        }
+        return out;
+    }
+
+    function updateTracks(blobs, cam, R, now) {
+        // Match tolerance: ~4 processing pixels, never below 1.2°
+        const degPerProcPx = Math.atan(cam.vw / (PROC_W * cam.f)) / d2r;
+        const tol = Math.max(1.2, 4 * degPerProcPx);
+        const matched = new Set();
+
+        for (const b of blobs) {
+            const w = normalize(devToWorld(R, videoToRay(cam, b.vx, b.vy)));
+            let best = null, bestAng = Infinity;
+            for (const t of tracks) {
+                const ang = angleBetween(t.dir, w);
+                const lim = t.locked ? tol * 2.5 : tol;
+                if (ang < lim && ang < bestAng) { best = t; bestAng = ang; }
+            }
+            if (best) {
+                if (matched.has(best)) continue;
+                matched.add(best);
+                best.dir = normalize([best.dir[0] * 0.7 + w[0] * 0.3, best.dir[1] * 0.7 + w[1] * 0.3, best.dir[2] * 0.7 + w[2] * 0.3]);
+                best.lastSeen = now; best.miss = 0;
+                if (!best.on) { best.on = true; best.onEvents++; }
+            } else if (tracks.length < 40) {
+                const t = { dir: w, lastSeen: now, miss: 0, on: true, onEvents: 1, locked: false };
+                tracks.push(t); matched.add(t);
+            }
+        }
+
+        // A track only switches "off" if it should be visible but is not seen
+        for (const t of tracks) {
+            if (matched.has(t)) continue;
+            const p = projectWorld(cam, R, t.dir);
+            const inView = !p.behind && p.vx >= 0 && p.vx <= cam.vw && p.vy >= 0 && p.vy <= cam.vh;
+            if (inView) { t.miss++; if (t.miss >= OFF_FRAMES && t.on) t.on = false; }
+        }
+
+        tracks = tracks.filter(t => t.locked || now - t.lastSeen < TRACK_TTL);
+
+        if (!lockedGlare) {
+            const need = Math.max(1, parseInt(flashesInput.value, 10) || 3);
+            const cand = tracks.filter(t => t.onEvents >= need).sort((a, b) => b.onEvents - a.onEvents)[0];
+            if (cand) lockGlare(cand);
+        }
+    }
+
+    function lockGlare(t) {
+        t.locked = true;
+        lockedGlare = t;
+        btnGlareSync.style.display = 'block';
+        btnGlareClear.style.display = 'block';
+        notifyGlare();
+    }
+
+    function resetGlare() {
+        tracks = []; lockedGlare = null;
+        btnGlareSync.style.display = 'none';
+        btnGlareClear.style.display = 'none';
+    }
+
+    function setGlareMode(on) {
+        glareMode = on;
+        btnGlare.innerText = on ? 'Glare: On' : 'Glare: Off';
+        btnGlare.classList.toggle('active', on);
+        glarePanel.style.display = on ? 'block' : 'none';
+        resetGlare();
+        if (!on) glareInfo.innerText = 'off';
+    }
+
+    function notifyGlare() {
+        glareBanner.style.display = 'block';
+        clearTimeout(bannerTimer);
+        bannerTimer = setTimeout(() => { glareBanner.style.display = 'none'; }, 2500);
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        if (audioCtx) {
+            [0, 0.22].forEach(off => {
+                const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+                o.frequency.value = 1200; o.connect(g); g.connect(audioCtx.destination);
+                const t0 = audioCtx.currentTime + off;
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
+                o.start(t0); o.stop(t0 + 0.16);
+            });
+        }
+    }
+
+    btnGlare.addEventListener('click', () => {
+        // Audio must be unlocked by a user gesture
+        try {
+            if (!audioCtx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); }
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        } catch (e) {}
+        setGlareMode(!glareMode);
+    });
+
+    btnGlareClear.addEventListener('click', () => resetGlare());
+
+    // Make the compass agree with the glare: the glare is the remote site, so its direction IS the target bearing
+    btnGlareSync.addEventListener('click', () => {
+        if (!lockedGlare) return;
+        const w = lockedGlare.dir;
+        const rel = Math.atan2(w[0], w[1]) / d2r;
+        const dec = parseFloat(magDecInput.value) || 0;
+        compassOffset = targetBearing - dec - rel;
+        isCalibrated = true;
+        setCalStatus("Synced to glare", "#00e676");
+    });
+
+    function drawOverlay(cam, R, now) {
+        const dpr = window.devicePixelRatio || 1;
+        const W = arView.clientWidth, H = arView.clientHeight;
+        if (overlay.width !== Math.round(W * dpr) || overlay.height !== Math.round(H * dpr)) {
+            overlay.width = Math.round(W * dpr); overlay.height = Math.round(H * dpr);
+        }
+        octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        octx.clearRect(0, 0, W, H);
+        if (!glareMode || !cam || !R) return;
+
+        const need = Math.max(1, parseInt(flashesInput.value, 10) || 3);
+        octx.font = 'bold 12px monospace';
+        octx.textAlign = 'center';
+
+        // Unconfirmed candidates (shows the flash count so the user can see it is working)
+        for (const t of tracks) {
+            if (t.locked || !(t.on || t.onEvents >= 2)) continue;
+            const p = projectWorld(cam, R, t.dir);
+            if (p.behind) continue;
+            octx.setLineDash([]);
+            octx.lineWidth = 2;
+            octx.strokeStyle = 'rgba(255,235,59,0.85)';
+            octx.beginPath(); octx.arc(p.sx, p.sy, 14, 0, Math.PI * 2); octx.stroke();
+            if (t.onEvents >= 2) { octx.fillStyle = '#ffeb3b'; octx.fillText(`${t.onEvents}/${need}`, p.sx, p.sy - 20); }
+        }
+
+        if (!lockedGlare) return;
+        const p = projectWorld(cam, R, lockedGlare.dir);
+        const onScreen = !p.behind && p.sx >= 0 && p.sx <= W && p.sy >= 0 && p.sy <= H;
+        const visibleNow = now - lockedGlare.lastSeen < 300;
+
+        if (onScreen) {
+            const r = 26 + 4 * Math.sin(now / 150);
+            octx.lineWidth = 3;
+            octx.strokeStyle = '#ff2bd6';
+            octx.setLineDash(visibleNow ? [] : [6, 6]); // dashed = glare currently dark, position from sensors
+            octx.beginPath(); octx.arc(p.sx, p.sy, r, 0, Math.PI * 2); octx.stroke();
+            octx.setLineDash([]);
+            octx.beginPath();
+            octx.moveTo(p.sx - r - 10, p.sy); octx.lineTo(p.sx - r + 4, p.sy);
+            octx.moveTo(p.sx + r - 4, p.sy); octx.lineTo(p.sx + r + 10, p.sy);
+            octx.moveTo(p.sx, p.sy - r - 10); octx.lineTo(p.sx, p.sy - r + 4);
+            octx.moveTo(p.sx, p.sy + r - 4); octx.lineTo(p.sx, p.sy + r + 10);
+            octx.stroke();
+            octx.fillStyle = '#ff2bd6';
+            octx.fillText('GLARE', p.sx, p.sy + r + 24);
+        } else {
+            // Off-screen: arrow at the edge pointing toward the glare
+            let dx = p.dev[0], dy = -p.dev[1];
+            let L = Math.hypot(dx, dy); if (L < 1e-6) { dx = 1; dy = 0; L = 1; }
+            dx /= L; dy /= L;
+            const m = 50, hw = W / 2 - m, hh = H / 2 - m;
+            const t = Math.min(Math.abs(dx) > 1e-6 ? hw / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? hh / Math.abs(dy) : Infinity);
+            const x = W / 2 + dx * t, y = H / 2 + dy * t;
+            octx.save();
+            octx.translate(x, y); octx.rotate(Math.atan2(dy, dx));
+            octx.fillStyle = '#ff2bd6';
+            octx.beginPath(); octx.moveTo(22, 0); octx.lineTo(-10, -14); octx.lineTo(-10, 14); octx.closePath(); octx.fill();
+            octx.restore();
+            octx.fillText('GLARE', x - dx * 30, y - dy * 30 + 4);
+        }
+    }
+
+    function updateGlareInfo(now) {
+        if (!glareMode) return;
+        if (angSpeed >= MAX_SPEED) glareStatus.innerText = 'Hold steady to scan…';
+        else if (lockedGlare) {
+            const ago = (now - lockedGlare.lastSeen) / 1000;
+            glareStatus.innerText = ago < 0.3 ? 'Locked, glare visible' : `Locked, last seen ${ago.toFixed(0)}s ago`;
+        } else {
+            const best = tracks.reduce((m, t) => Math.max(m, t.onEvents), 0);
+            glareStatus.innerText = `Scanning… ${tracks.length} candidate(s)` + (best >= 2 ? `, best ${best} flashes` : '');
+        }
+
+        if (!lockedGlare) { glareInfo.innerText = 'searching'; return; }
+        const w = lockedGlare.dir;
+        const rel = Math.atan2(w[0], w[1]) / d2r;
+        const tilt = Math.asin(Math.max(-1, Math.min(1, w[2]))) / d2r;
+        let bStr = 'n/a';
+        if (isCalibrated) {
+            const dec = parseFloat(magDecInput.value) || 0;
+            bStr = ((((rel + compassOffset + dec) % 360) + 360) % 360).toFixed(1) + '°';
+        }
+        glareInfo.innerText = `B ${bStr} T ${tilt.toFixed(1)}° (ΔT ${(tilt - targetTilt).toFixed(1)}°)`;
+    }
+
+    function arLoop(ts) {
+        if (!arActive) return;
+        requestAnimationFrame(arLoop);
+        const cam = getCam();
+        if (!ori.valid) { drawOverlay(null, null, ts); return; }
+
+        const R = rotMatrix(ori.a, ori.b, ori.g);
+        const fwd = [-R[2], -R[5], -R[8]];
+        if (prevFwd && ts > prevTs) {
+            const inst = angleBetween(prevFwd, fwd) / ((ts - prevTs) / 1000);
+            angSpeed = angSpeed * 0.7 + inst * 0.3;
+        }
+        prevFwd = fwd; prevTs = ts;
+
+        if (glareMode && cam && video.readyState >= 2 && ts - lastDetect >= DETECT_INTERVAL) {
+            lastDetect = ts;
+            if (angSpeed < MAX_SPEED) updateTracks(detectBlobs(cam), cam, R, ts);
+        }
+
+        drawOverlay(cam, R, ts);
+        if (ts - lastInfo > 150) { lastInfo = ts; updateGlareInfo(ts); }
+    }
+</script>
+
+</body>
+</html>
