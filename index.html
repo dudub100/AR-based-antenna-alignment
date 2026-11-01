@@ -34,22 +34,43 @@
         #ar-view { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: black; z-index: 1000; overflow: hidden; }
         video { width: 100%; height: 100%; object-fit: cover; }
         
-        .overlay-data { position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); left: 20px; color: #fff; font-family: monospace; font-size: 1rem; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; border: 1px solid #555; z-index: 1010; max-width: 55%; }
+        .overlay-data { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); left: calc(16px + env(safe-area-inset-left, 0px)); color: #fff; font-family: monospace; font-size: 0.95rem; line-height: 1.35; background: rgba(0,0,0,0.6); padding: 10px 12px; border-radius: 8px; border: 1px solid #555; z-index: 1010; max-width: 58%; }
         .overlay-data span { font-weight: bold; }
+        .overlay-data hr { border: none; border-top: 1px solid #555; margin: 6px 0; }
         .val-target { color: #ffeb3b; } 
         .val-actual { color: #00e676; } 
         .val-glare { color: #ff7be5; font-size: 0.85rem; }
+        #dbg-cal { font-size: 0.8rem; }
+        
+        #close-ar { position: absolute; top: calc(16px + env(safe-area-inset-top, 0px)); right: calc(16px + env(safe-area-inset-right, 0px)); background: #dc3545; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
 
-        #debug-panel { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); left: 20px; color: #0ff; font-family: monospace; font-size: 0.8rem; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px; border: 1px solid #0ff; text-align: left; z-index: 1010; max-width: 45%; }
-        
-        #close-ar { position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); background: #dc3545; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
-        
-        #btn-recal { position: absolute; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); background: #ff9800; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 1010; }
-        
-        /* Zoom Control UI */
-        #zoom-container { display: none; position: absolute; bottom: calc(110px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); width: 80%; max-width: 300px; z-index: 1010; flex-direction: column; align-items: center; background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; border: 1px solid #555; }
-        #zoom-container label { color: white; font-weight: bold; margin-bottom: 8px; font-size: 1rem; }
+        /* Bottom toolbar: all camera-view actions in one row */
+        #ar-toolbar { position: absolute; left: 0; right: 0; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 0 12px; z-index: 1010; }
+        #ar-toolbar button { padding: 12px 16px; border: none; border-radius: 8px; font-size: 0.95rem; font-weight: bold; color: #fff; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
+        #btn-recal { background: #ff9800; }
+        #btn-glare { background: #6f42c1; }
+        #btn-glare.active { background: #e83e8c; }
+        #btn-glare-sync { background: #00a86b; display: none; }
+        #btn-glare-clear { background: #555; display: none; }
+
+        /* Panels above the toolbar (portrait) or on the right (landscape) */
+        #ar-panels { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); width: 80%; max-width: 320px; display: flex; flex-direction: column; gap: 8px; z-index: 1010; }
+        #zoom-container { display: none; flex-direction: column; align-items: center; background: rgba(0,0,0,0.6); padding: 10px 12px; border-radius: 8px; border: 1px solid #555; }
+        #zoom-container label { color: white; font-weight: bold; margin-bottom: 6px; font-size: 1rem; }
         #zoom-slider { width: 100%; }
+
+        #glare-panel { display: none; background: rgba(0,0,0,0.65); border: 1px solid #e83e8c; padding: 10px 12px; border-radius: 8px; color: #fff; font-size: 0.85rem; }
+        #glare-panel .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+        #glare-panel label { color: #fff; font-size: 0.85rem; }
+        #glare-threshold { flex: 1; }
+        #glare-flashes { width: 64px; padding: 4px; }
+        #glare-status { font-family: monospace; color: #ff9be0; }
+
+        @media (orientation: landscape) and (max-height: 600px) {
+            #ar-panels { left: auto; transform: none; right: calc(16px + env(safe-area-inset-right, 0px)); top: calc(70px + env(safe-area-inset-top, 0px)); bottom: auto; width: 260px; }
+            #ar-toolbar { justify-content: flex-end; padding-right: calc(16px + env(safe-area-inset-right, 0px)); }
+            .overlay-data { font-size: 0.8rem; max-width: 40%; }
+        }
 
         .crosshair { position: absolute; top: 50%; left: 50%; width: 80px; height: 80px; transform: translate(-50%, -50%); z-index: 1005; }
         .crosshair::before, .crosshair::after { content: ''; position: absolute; background: #ff1744; transition: background-color 0.2s; box-shadow: 0 0 4px rgba(0,0,0,0.5);}
@@ -62,20 +83,7 @@
         #fresnel-1 { border: 2px dashed #00e676; } /* 1st Fresnel Zone */
         #fresnel-2 { border: 2px dotted #ffeb3b; } /* 2nd Fresnel Zone */
 
-        /* Glare Detection */
         #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1007; }
-        #glare-controls { position: absolute; top: calc(80px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 8px; z-index: 1010; }
-        #glare-controls button { padding: 10px 14px; border: none; border-radius: 8px; font-weight: bold; font-size: 0.85rem; color: #fff; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
-        #btn-glare { background: #6f42c1; }
-        #btn-glare.active { background: #e83e8c; }
-        #btn-glare-sync { background: #00a86b; display: none; }
-        #btn-glare-clear { background: #555; display: none; }
-        #glare-panel { display: none; position: absolute; bottom: calc(195px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); width: 80%; max-width: 300px; box-sizing: border-box; background: rgba(0,0,0,0.65); border: 1px solid #e83e8c; padding: 10px 12px; border-radius: 8px; color: #fff; font-size: 0.85rem; z-index: 1010; }
-        #glare-panel .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
-        #glare-panel label { color: #fff; font-size: 0.85rem; }
-        #glare-threshold { flex: 1; }
-        #glare-flashes { width: 64px; padding: 4px; }
-        #glare-status { font-family: monospace; color: #ff9be0; }
         #glare-banner { display: none; position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%); background: rgba(232,62,140,0.92); color: #fff; font-weight: bold; font-size: 1.3rem; padding: 12px 24px; border-radius: 10px; z-index: 1011; pointer-events: none; white-space: nowrap; }
     </style>
 </head>
@@ -129,6 +137,7 @@
     </div>
 
     <button id="btn-align" class="action-btn">Align with Camera</button>
+    <button id="btn-align-glare" class="action-btn" style="background: #6f42c1;">Align with Camera + Detect Glare</button>
 </div>
 
 <div id="ar-view">
@@ -136,16 +145,13 @@
     
     <div class="overlay-data" id="ar-data">
         Target Bearing: <span class="val-target" id="tgt-b"></span>°<br>
-        Actual Bearing: <span class="val-actual" id="act-b">--</span>°<br>
-        <hr style="border-color: #555;">
+        Actual Bearing: <span class="val-actual" id="act-b">--</span>°
+        <hr>
         Target Tilt: <span class="val-target" id="tgt-t"></span>°<br>
         Actual Tilt: <span class="val-actual" id="act-t">--</span>°
-        <hr style="border-color: #555;">
-        Glare: <span class="val-glare" id="glr-info">off</span>
-    </div>
-
-    <div id="debug-panel">
-        Camera Calibrated: <span id="dbg-cal">No (Lay device flat)</span>
+        <hr>
+        Glare: <span class="val-glare" id="glr-info">off</span><br>
+        Compass: <span id="dbg-cal">Lay device flat</span>
     </div>
     
     <!-- AR Elements -->
@@ -155,33 +161,33 @@
     <canvas id="overlay-canvas"></canvas>
     <div id="glare-banner">Glare detected</div>
 
-    <!-- Glare Controls -->
-    <div id="glare-controls">
-        <button id="btn-glare">Glare: Off</button>
-        <button id="btn-glare-sync">Sync to Glare</button>
-        <button id="btn-glare-clear">Clear Glare</button>
-    </div>
-    <div id="glare-panel">
-        <div class="row">
-            <label for="glare-threshold">Brightness</label>
-            <input type="range" id="glare-threshold" min="180" max="254" step="1" value="235">
-            <span id="glare-threshold-val">235</span>
+    <div id="ar-panels">
+        <div id="zoom-container">
+            <label for="zoom-slider">Zoom: <span id="zoom-val">1.0</span>x</label>
+            <input type="range" id="zoom-slider" min="1" max="10" step="0.1" value="1">
         </div>
-        <div class="row">
-            <label for="glare-flashes">Flashes to confirm</label>
-            <input type="number" id="glare-flashes" min="1" max="8" step="1" value="3">
+        <div id="glare-panel">
+            <div class="row">
+                <label for="glare-threshold">Brightness</label>
+                <input type="range" id="glare-threshold" min="180" max="254" step="1" value="235">
+                <span id="glare-threshold-val">235</span>
+            </div>
+            <div class="row">
+                <label for="glare-flashes">Flashes to confirm</label>
+                <input type="number" id="glare-flashes" min="1" max="8" step="1" value="3">
+            </div>
+            <div id="glare-status">Scanning…</div>
         </div>
-        <div id="glare-status">Scanning…</div>
-    </div>
-    
-    <!-- Zoom Controls -->
-    <div id="zoom-container">
-        <label for="zoom-slider">Zoom: <span id="zoom-val">1.0</span>x</label>
-        <input type="range" id="zoom-slider" min="1" max="10" step="0.1" value="1">
     </div>
 
     <button id="close-ar">Close</button>
-    <button id="btn-recal">Recalibrate</button>
+
+    <div id="ar-toolbar">
+        <button id="btn-recal">Recalibrate</button>
+        <button id="btn-glare">Detect Glare</button>
+        <button id="btn-glare-sync">Sync to Glare</button>
+        <button id="btn-glare-clear">Clear Glare</button>
+    </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -325,6 +331,14 @@
         updateFresnelDisplay();
     }
 
+    // Screen rotation relative to the phone's natural (portrait) orientation
+    function screenAngle() {
+        let a = 0;
+        if (screen.orientation && typeof screen.orientation.angle === 'number') a = screen.orientation.angle;
+        else if (typeof window.orientation === 'number') a = window.orientation; // older iOS
+        return ((a % 360) + 360) % 360;
+    }
+
     // --- CAMERA MODEL (shared by Fresnel circles and glare tracking) ---
     // Pinhole model: focal length in video pixels derived from the FOV across the short side,
     // scaled by zoom. Screen mapping follows the video's object-fit: cover.
@@ -335,7 +349,8 @@
         const fov = Math.min(Math.max(parseFloat(fovInput.value) || 50, 5), 150);
         const f = (Math.min(vw, vh) / 2) / Math.tan(fov / 2 * d2r) * currentZoom;
         const s = Math.max(W / vw, H / vh);
-        return { vw, vh, f, W, H, s };
+        const th = screenAngle() * d2r; // 0 = portrait, 90/270 = landscape
+        return { vw, vh, f, W, H, s, rc: Math.cos(th), rs: Math.sin(th) };
     }
 
     function updateFresnelDisplay() {
@@ -361,6 +376,7 @@
 
     window.addEventListener('resize', updateFresnelDisplay);
     video.addEventListener('loadedmetadata', updateFresnelDisplay);
+    window.addEventListener('orientationchange', () => setTimeout(updateFresnelDisplay, 300));
 
     window.onload = () => {
         const loadedFromLink = checkIncomingSharedLink();
@@ -392,15 +408,15 @@
 
     function setCalStatus(text, color) { dbgCal.innerText = text; dbgCal.style.color = color; }
 
-    btnAlign.addEventListener('click', async () => {
+    async function openCamera(withGlare) {
         isCalibrated = false;
         absSeen = false;
         ori.valid = false;
-        setCalStatus("Lay device flat to calibrate...", "#ff1744");
+        setCalStatus("Lay device flat to calibrate", "#ff1744");
         
         arView.style.display = 'block';
         arActive = true;
-        resetGlare();
+        setGlareMode(withGlare);
         requestAnimationFrame(arLoop);
         requestOrientationPermission();
         
@@ -433,7 +449,10 @@
             
             updateFresnelDisplay(); 
         } catch (err) { alert("Camera error: " + err.message); }
-    });
+    }
+
+    btnAlign.addEventListener('click', () => openCamera(false));
+    document.getElementById('btn-align-glare').addEventListener('click', () => { unlockAudio(); openCamera(true); });
 
     // Handle Slider Changes
     zoomSlider.addEventListener('input', async (e) => {
@@ -459,7 +478,7 @@
 
     btnRecal.addEventListener('click', () => {
         isCalibrated = false;
-        setCalStatus("Lay device flat to calibrate...", "#ff1744");
+        setCalStatus("Lay device flat to calibrate", "#ff1744");
     });
 
     function requestOrientationPermission() {
@@ -540,7 +559,7 @@
     // frame using the orientation sensors, so the marker stays on the glare
     // when the camera moves and even while the glare is dark.
     // =====================================================================
-    const PROC_W = 160;          // processing width in pixels
+    const PROC_LONG = 192;       // processing size of the image's long side, in pixels
     const CONTRAST = 45;         // surroundings must be this much darker than the threshold
     const MAX_SPEED = 20;        // deg/s; above this, detection pauses (frame/sensor timing mismatch)
     const DETECT_INTERVAL = 66;  // ms between processed frames (~15 fps)
@@ -582,20 +601,27 @@
     const normalize = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
     const angleBetween = (u, v) => Math.acos(Math.min(1, Math.max(-1, u[0]*v[0] + u[1]*v[1] + u[2]*v[2]))) / d2r;
 
-    // Video pixel -> ray in device frame (back camera looks along -Z, screen up is +Y; assumes portrait)
-    function videoToRay(cam, vx, vy) { return [vx - cam.vw / 2, -(vy - cam.vh / 2), -cam.f]; }
+    // Video pixel -> ray in device frame. Back camera looks along -Z. The video image is upright on
+    // screen, so its axes are the device axes rotated by the screen angle (portrait or landscape).
+    function videoToRay(cam, vx, vy) {
+        const u = vx - cam.vw / 2, v = -(vy - cam.vh / 2); // right / up on screen
+        return [u * cam.rc + v * cam.rs, -u * cam.rs + v * cam.rc, -cam.f];
+    }
 
     // World direction -> video and screen pixels
     function projectWorld(cam, R, w) {
         const dev = worldToDev(R, w);
-        if (dev[2] >= -1e-6) return { behind: true, dev };
-        const vx = cam.vw / 2 + cam.f * dev[0] / -dev[2];
-        const vy = cam.vh / 2 - cam.f * dev[1] / -dev[2];
-        return { behind: false, dev, vx, vy, sx: (vx - cam.vw / 2) * cam.s + cam.W / 2, sy: (vy - cam.vh / 2) * cam.s + cam.H / 2 };
+        // screen-aligned components (right / up)
+        const u = dev[0] * cam.rc - dev[1] * cam.rs, v = dev[0] * cam.rs + dev[1] * cam.rc;
+        if (dev[2] >= -1e-6) return { behind: true, dev, u, v };
+        const vx = cam.vw / 2 + cam.f * u / -dev[2];
+        const vy = cam.vh / 2 - cam.f * v / -dev[2];
+        return { behind: false, dev, u, v, vx, vy, sx: (vx - cam.vw / 2) * cam.s + cam.W / 2, sy: (vy - cam.vh / 2) * cam.s + cam.H / 2 };
     }
 
     function detectBlobs(cam) {
-        const pw = PROC_W, ph = Math.max(1, Math.round(PROC_W * cam.vh / cam.vw));
+        const k = PROC_LONG / Math.max(cam.vw, cam.vh);
+        const pw = Math.max(1, Math.round(cam.vw * k)), ph = Math.max(1, Math.round(cam.vh * k));
         if (procCanvas.width !== pw || procCanvas.height !== ph || !lum) {
             procCanvas.width = pw; procCanvas.height = ph;
             lum = new Uint8Array(pw * ph); labels = new Int32Array(pw * ph); stack = new Int32Array(pw * ph);
@@ -658,7 +684,7 @@
 
     function updateTracks(blobs, cam, R, now) {
         // Match tolerance: ~4 processing pixels, never below 1.2°
-        const degPerProcPx = Math.atan(cam.vw / (PROC_W * cam.f)) / d2r;
+        const degPerProcPx = Math.atan(cam.vw / ((procCanvas.width || PROC_LONG) * cam.f)) / d2r;
         const tol = Math.max(1.2, 4 * degPerProcPx);
         const matched = new Set();
 
@@ -715,7 +741,7 @@
 
     function setGlareMode(on) {
         glareMode = on;
-        btnGlare.innerText = on ? 'Glare: On' : 'Glare: Off';
+        btnGlare.innerText = on ? 'Stop Glare' : 'Detect Glare';
         btnGlare.classList.toggle('active', on);
         glarePanel.style.display = on ? 'block' : 'none';
         resetGlare();
@@ -740,14 +766,15 @@
         }
     }
 
-    btnGlare.addEventListener('click', () => {
-        // Audio must be unlocked by a user gesture
+    // Audio must be unlocked by a user gesture
+    function unlockAudio() {
         try {
             if (!audioCtx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); }
             if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         } catch (e) {}
-        setGlareMode(!glareMode);
-    });
+    }
+
+    btnGlare.addEventListener('click', () => { unlockAudio(); setGlareMode(!glareMode); });
 
     btnGlareClear.addEventListener('click', () => resetGlare());
 
@@ -810,7 +837,7 @@
             octx.fillText('GLARE', p.sx, p.sy + r + 24);
         } else {
             // Off-screen: arrow at the edge pointing toward the glare
-            let dx = p.dev[0], dy = -p.dev[1];
+            let dx = p.u, dy = -p.v;
             let L = Math.hypot(dx, dy); if (L < 1e-6) { dx = 1; dy = 0; L = 1; }
             dx /= L; dy /= L;
             const m = 50, hw = W / 2 - m, hh = H / 2 - m;
