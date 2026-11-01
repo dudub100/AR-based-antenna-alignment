@@ -63,7 +63,9 @@
         #glare-panel .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
         #glare-panel label { color: #fff; font-size: 0.85rem; }
         #glare-threshold { flex: 1; }
-        #glare-flashes { width: 64px; padding: 4px; }
+        #glare-panel input[type="number"] { width: 56px; padding: 4px; }
+        #glare-panel select { padding: 4px; border-radius: 4px; }
+        #glare-panel summary { cursor: pointer; color: #ff9be0; margin-top: 4px; }
         #glare-status { font-family: monospace; color: #ff9be0; }
 
         @media (orientation: landscape) and (max-height: 600px) {
@@ -167,17 +169,34 @@
             <input type="range" id="zoom-slider" min="1" max="10" step="0.1" value="1">
         </div>
         <div id="glare-panel">
-            <div class="row">
-                <label for="glare-threshold">Brightness</label>
-                <input type="range" id="glare-threshold" min="180" max="254" step="1" value="235">
-                <span id="glare-threshold-val">235</span>
-            </div>
-            <div class="row">
-                <label for="glare-flashes">Flashes to confirm</label>
-                <input type="number" id="glare-flashes" min="1" max="8" step="1" value="2">
-            </div>
             <div id="glare-status">Scanning…</div>
-            <div style="font-size:0.75rem; color:#ccc; margin-top:4px;">Counts slow on/off flashes. Glares that stay lit are ignored.</div>
+            <details>
+                <summary>Glare settings</summary>
+                <div class="row" style="margin-top:6px;">
+                    <label for="glare-pattern">Pattern</label>
+                    <select id="glare-pattern">
+                        <option value="rhythm" selected>Steady rhythm</option>
+                        <option value="any">Any flashes</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <label for="glare-flashes">Flashes to confirm</label>
+                    <input type="number" id="glare-flashes" min="1" max="12" step="1" value="7">
+                </div>
+                <div class="row">
+                    <label for="glare-threshold">Brightness</label>
+                    <input type="range" id="glare-threshold" min="180" max="254" step="1" value="235">
+                    <span id="glare-threshold-val">235</span>
+                </div>
+                <div class="row">
+                    <label><input type="checkbox" id="glare-near" checked> Only near target</label>
+                </div>
+                <div class="row">
+                    <label for="glare-tilt-win">±Tilt°</label><input type="number" id="glare-tilt-win" value="5" min="1" step="1">
+                    <label for="glare-brg-win">±Bearing°</label><input type="number" id="glare-brg-win" value="25" min="2" step="1">
+                </div>
+                <div style="font-size:0.75rem; color:#ccc;">Flash the mirror at a steady beat (about 1 s on, 1 s off). Glares that stay lit, flicker randomly, or are outside the cyan area are ignored.</div>
+            </details>
         </div>
     </div>
 
@@ -560,10 +579,11 @@
     // frame using the orientation sensors, so the marker stays on the glare
     // when the camera moves and even while the glare is dark.
     // =====================================================================
-    const PROC_LONG = 192;       // processing size of the image's long side, in pixels
+    const PROC_MAX = 800;        // frame is read at up to this many pixels on the long side
+    const GRID_LONG = 256;       // analysis grid long side; each cell keeps the BRIGHTEST pixel it covers
     const CONTRAST = 45;         // surroundings must be this much darker than the threshold
     const MAX_SPEED = 20;        // deg/s; above this, detection pauses (frame/sensor timing mismatch)
-    const DETECT_INTERVAL = 66;  // ms between processed frames (~15 fps)
+    const DETECT_INTERVAL = 40;  // ms between processed frames (~25 fps) so short flashes are not missed
     const OFF_FRAMES = 2;        // consecutive misses before a blob counts as "off"
     // Flash timing, tuned for a person moving a mirror by hand (slow on/off)
     const MIN_DARK = 300;        // ms: a dark gap must last at least this long to count (shorter = flicker/noise)
@@ -581,12 +601,16 @@
     const glareBanner = document.getElementById('glare-banner');
     const thrSlider = document.getElementById('glare-threshold'), thrVal = document.getElementById('glare-threshold-val');
     const flashesInput = document.getElementById('glare-flashes');
+    const patternSel = document.getElementById('glare-pattern');
+    const nearChk = document.getElementById('glare-near');
+    const tiltWinInput = document.getElementById('glare-tilt-win'), brgWinInput = document.getElementById('glare-brg-win');
+    patternSel.addEventListener('change', () => { flashesInput.value = patternSel.value === 'rhythm' ? 7 : 2; });
     const overlay = document.getElementById('overlay-canvas'), octx = overlay.getContext('2d');
     const procCanvas = document.createElement('canvas');
     const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
 
     let glareMode = false, tracks = [], lockedGlare = null, audioCtx = null;
-    let lum = null, labels = null, stack = null;
+    let lum = null, labels = null, stack = null, xCell = null, cellVideoPx = 4;
     let prevFwd = null, prevTs = 0, angSpeed = 0, lastDetect = 0, lastInfo = 0, bannerTimer = null;
 
     thrSlider.addEventListener('input', () => { thrVal.innerText = thrSlider.value; });
@@ -626,39 +650,54 @@
     }
 
     function detectBlobs(cam) {
-        const k = PROC_LONG / Math.max(cam.vw, cam.vh);
+        // Read the frame at (near) full resolution, then max-pool into a grid.
+        // Averaging would wash out a distant mirror that is smaller than one pixel; max-pooling keeps it.
+        const k = Math.min(1, PROC_MAX / Math.max(cam.vw, cam.vh));
         const pw = Math.max(1, Math.round(cam.vw * k)), ph = Math.max(1, Math.round(cam.vh * k));
-        if (procCanvas.width !== pw || procCanvas.height !== ph || !lum) {
+        const pool = Math.max(1, Math.ceil(Math.max(pw, ph) / GRID_LONG));
+        const gw = Math.ceil(pw / pool), gh = Math.ceil(ph / pool), n = gw * gh;
+        if (procCanvas.width !== pw || procCanvas.height !== ph || !lum || lum.length !== n) {
             procCanvas.width = pw; procCanvas.height = ph;
-            lum = new Uint8Array(pw * ph); labels = new Int32Array(pw * ph); stack = new Int32Array(pw * ph);
+            lum = new Uint8Array(n); labels = new Int32Array(n); stack = new Int32Array(n);
+            xCell = new Int32Array(pw);
+            for (let x = 0; x < pw; x++) xCell[x] = (x / pool) | 0;
         }
+        cellVideoPx = pool / k;
         procCtx.drawImage(video, 0, 0, pw, ph);
         let img;
         try { img = procCtx.getImageData(0, 0, pw, ph).data; } catch (e) { return []; }
 
-        const n = pw * ph, T = parseInt(thrSlider.value, 10);
-        for (let i = 0, j = 0; i < n; i++, j += 4) lum[i] = (img[j] * 77 + img[j + 1] * 150 + img[j + 2] * 29) >> 8;
-        labels.fill(0);
+        lum.fill(0);
+        for (let y = 0, j = 0; y < ph; y++) {
+            const rowBase = ((y / pool) | 0) * gw;
+            for (let x = 0; x < pw; x++, j += 4) {
+                const l = (img[j] * 77 + img[j + 1] * 150 + img[j + 2] * 29) >> 8;
+                const g = rowBase + xCell[x];
+                if (l > lum[g]) lum[g] = l;
+            }
+        }
 
-        const maxArea = Math.max(4, Math.floor(n * 0.015)); // big bright areas = sky/sun, not a mirror
+        const T = parseInt(thrSlider.value, 10);
+        labels.fill(0);
+        const maxArea = Math.max(4, Math.floor(n * 0.01)); // big bright areas = sky/sun/walls, not a mirror
         const blobs = [];
         let next = 0;
         for (let i = 0; i < n; i++) {
             if (lum[i] < T || labels[i]) continue;
             next++;
             let sp = 0; stack[sp++] = i; labels[i] = next;
-            let area = 0, sw = 0, sx = 0, sy = 0, x0 = pw, x1 = 0, y0 = ph, y1 = 0;
+            let area = 0, sw = 0, sx = 0, sy = 0, x0 = gw, x1 = 0, y0 = gh, y1 = 0;
             while (sp > 0) {
-                const p = stack[--sp], x = p % pw, y = (p / pw) | 0;
+                const p = stack[--sp], x = p % gw, y = (p / gw) | 0;
                 const w = lum[p] - T + 1;
                 area++; sw += w; sx += w * x; sy += w * y;
                 if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
                 for (let dy = -1; dy <= 1; dy++) {
-                    const yy = y + dy; if (yy < 0 || yy >= ph) continue;
+                    const yy = y + dy; if (yy < 0 || yy >= gh) continue;
                     for (let dx = -1; dx <= 1; dx++) {
                         if (!dx && !dy) continue;
-                        const xx = x + dx; if (xx < 0 || xx >= pw) continue;
-                        const q = yy * pw + xx;
+                        const xx = x + dx; if (xx < 0 || xx >= gw) continue;
+                        const q = yy * gw + xx;
                         if (lum[q] >= T && !labels[q]) { labels[q] = next; stack[sp++] = q; }
                     }
                 }
@@ -669,33 +708,74 @@
             blobs.push({ label: next, cx: sx / sw, cy: sy / sw, x0, x1, y0, y1 });
         }
 
-        // Keep only blobs whose surroundings are clearly darker (rejects bright sky patches, white walls)
+        // Keep only blobs whose surroundings are clearly darker
         const out = [];
         for (const b of blobs) {
             if (out.length >= 25) break;
             const m = Math.max(3, Math.max(b.x1 - b.x0, b.y1 - b.y0) + 2);
             let s = 0, c = 0;
-            for (let y = Math.max(0, b.y0 - m); y <= Math.min(ph - 1, b.y1 + m); y++) {
-                for (let x = Math.max(0, b.x0 - m); x <= Math.min(pw - 1, b.x1 + m); x++) {
-                    const q = y * pw + x;
+            for (let y = Math.max(0, b.y0 - m); y <= Math.min(gh - 1, b.y1 + m); y++) {
+                for (let x = Math.max(0, b.x0 - m); x <= Math.min(gw - 1, b.x1 + m); x++) {
+                    const q = y * gw + x;
                     if (labels[q] === b.label) continue;
                     s += lum[q]; c++;
                 }
             }
             if (c && s / c > T - CONTRAST) continue;
-            out.push({ vx: (b.cx + 0.5) * cam.vw / pw, vy: (b.cy + 0.5) * cam.vh / ph });
+            out.push({ vx: (b.cx + 0.5) * cellVideoPx, vy: (b.cy + 0.5) * cellVideoPx });
         }
         return out;
     }
 
+    // Absolute bearing / tilt of a world direction (bearing only meaningful when calibrated)
+    function dirToBearingTilt(w) {
+        const rel = Math.atan2(w[0], w[1]) / d2r;
+        const dec = parseFloat(magDecInput.value) || 0;
+        const bearing = ((((rel + compassOffset + dec) % 360) + 360) % 360);
+        const tilt = Math.asin(Math.max(-1, Math.min(1, w[2]))) / d2r;
+        return { rel, bearing, tilt };
+    }
+
+    // Only accept glare near where the remote site should be. Tilt comes from gravity and is reliable;
+    // bearing is only checked when the compass is calibrated.
+    function inSearchWindow(w) {
+        if (!nearChk.checked) return true;
+        const bt = dirToBearingTilt(w);
+        const tWin = parseFloat(tiltWinInput.value) || 5, bWin = parseFloat(brgWinInput.value) || 25;
+        if (Math.abs(bt.tilt - targetTilt) > tWin) return false;
+        if (isCalibrated) {
+            let d = Math.abs(bt.bearing - targetBearing); if (d > 180) d = 360 - d;
+            if (d > bWin) return false;
+        }
+        return true;
+    }
+
+    // Steady rhythm: the last `need` flashes are evenly spaced AND of similar length.
+    // A person flashing a mirror keeps a beat; random glints (leaves, cars, water) do not.
+    function isRhythmic(t, need) {
+        const n = Math.max(4, need);
+        if (t.flashes.length < n || t.durs.length < n - 1) return false;
+        const f = t.flashes.slice(-n);
+        const iv = [];
+        for (let i = 1; i < f.length; i++) iv.push(f[i] - f[i - 1]);
+        const median = a => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)];
+        const mi = median(iv);
+        if (mi < 600 || mi > 6000) return false;
+        if (!iv.every(d => d >= mi * 0.75 && d <= mi * 1.25)) return false; // spacing within ±25%
+        const ds = t.durs.slice(-(n - 1));                                   // completed flash lengths
+        const md = median(ds);
+        return ds.every(d => d >= md * 0.6 && d <= md * 1.6);
+    }
+
     function updateTracks(blobs, cam, R, now) {
         // Match tolerance: ~4 processing pixels, never below 1.2°
-        const degPerProcPx = Math.atan(cam.vw / ((procCanvas.width || PROC_LONG) * cam.f)) / d2r;
-        const tol = Math.max(1.2, 4 * degPerProcPx);
+        const degPerCell = Math.atan(cellVideoPx / cam.f) / d2r;
+        const tol = Math.max(1.0, 3 * degPerCell);
         const matched = new Set();
 
         for (const b of blobs) {
             const w = normalize(devToWorld(R, videoToRay(cam, b.vx, b.vy)));
+            if (!inSearchWindow(w)) continue;
             let best = null, bestAng = Infinity;
             for (const t of tracks) {
                 const ang = angleBetween(t.dir, w);
@@ -718,7 +798,7 @@
                 }
             } else if (tracks.length < 40) {
                 // First sighting does not count as a flash: it might just be a fixed glare coming into view
-                const t = { dir: w, lastSeen: now, miss: 0, firstMissAt: 0, on: true, onSince: now, offSince: 0, flashes: [], fixed: false, locked: false };
+                const t = { dir: w, lastSeen: now, miss: 0, firstMissAt: 0, on: true, onSince: now, offSince: 0, flashes: [], durs: [], fixed: false, locked: false };
                 tracks.push(t); matched.add(t);
             }
         }
@@ -731,19 +811,28 @@
                 if (inView) {
                     if (t.miss === 0) t.firstMissAt = now;
                     t.miss++;
-                    if (t.miss >= OFF_FRAMES && t.on) { t.on = false; t.offSince = t.firstMissAt; }
+                    if (t.miss >= OFF_FRAMES && t.on) {
+                        t.on = false; t.offSince = t.firstMissAt;
+                        const last = t.flashes[t.flashes.length - 1];
+                        if (last === t.onSince) t.durs.push(t.offSince - t.onSince); // length of a counted flash
+                    }
                 }
             }
             // Lit continuously for a long time = fixed glare (window, lamp, metal roof): ignore it
-            if (!t.locked && t.on && !t.fixed && now - t.onSince >= FIXED_TIME) { t.fixed = true; t.flashes = []; }
-            t.flashes = t.flashes.filter(ts => now - ts <= FLASH_WINDOW);
+            if (!t.locked && t.on && !t.fixed && now - t.onSince >= FIXED_TIME) { t.fixed = true; t.flashes = []; t.durs = []; }
+            while (t.flashes.length && now - t.flashes[0] > FLASH_WINDOW) {
+                t.flashes.shift();
+                if (t.durs.length > t.flashes.length) t.durs.shift();
+            }
         }
 
         tracks = tracks.filter(t => t.locked || now - t.lastSeen < TRACK_TTL);
 
         if (!lockedGlare) {
             const need = Math.max(1, parseInt(flashesInput.value, 10) || 2);
-            const cand = tracks.filter(t => !t.fixed && t.flashes.length >= need).sort((a, b) => b.flashes.length - a.flashes.length)[0];
+            const rhythm = patternSel.value === 'rhythm';
+            const cand = tracks.filter(t => !t.fixed && (rhythm ? isRhythmic(t, need) : t.flashes.length >= need))
+                               .sort((a, b) => b.flashes.length - a.flashes.length)[0];
             if (cand) lockGlare(cand);
         }
     }
@@ -822,6 +911,7 @@
         octx.clearRect(0, 0, W, H);
         if (!glareMode || !cam || !R) return;
 
+        drawSearchWindow(cam, R);
         const need = Math.max(1, parseInt(flashesInput.value, 10) || 2);
         octx.font = 'bold 12px monospace';
         octx.textAlign = 'center';
@@ -882,6 +972,36 @@
             octx.restore();
             octx.fillText('GLARE', x - dx * 30, y - dy * 30 + 4);
         }
+    }
+
+    // Outline of the area where glare is accepted (cyan dashed)
+    function drawSearchWindow(cam, R) {
+        if (!nearChk.checked) return;
+        const tWin = parseFloat(tiltWinInput.value) || 5, bWin = parseFloat(brgWinInput.value) || 25;
+        const dec = parseFloat(magDecInput.value) || 0;
+        let centerRel, half;
+        if (isCalibrated) { centerRel = targetBearing - compassOffset - dec; half = bWin; }
+        else { const f = [-R[2], -R[5], -R[8]]; centerRel = Math.atan2(f[0], f[1]) / d2r; half = 60; } // tilt band only
+        const dirAt = (relDeg, tiltDeg) => {
+            const r = relDeg * d2r, t = tiltDeg * d2r;
+            return [Math.cos(t) * Math.sin(r), Math.cos(t) * Math.cos(r), Math.sin(t)];
+        };
+        const line = (pts) => {
+            octx.beginPath(); let pen = false;
+            for (const [rb, tl] of pts) {
+                const p = projectWorld(cam, R, dirAt(rb, tl));
+                if (p.behind) { pen = false; continue; }
+                if (!pen) { octx.moveTo(p.sx, p.sy); pen = true; } else octx.lineTo(p.sx, p.sy);
+            }
+            octx.stroke();
+        };
+        octx.lineWidth = 1.5; octx.setLineDash([8, 6]); octx.strokeStyle = 'rgba(0,220,255,0.7)';
+        const N = 24, lo = targetTilt - tWin, hi = targetTilt + tWin;
+        for (const tl of [lo, hi]) { const pts = []; for (let i = 0; i <= N; i++) pts.push([centerRel - half + 2 * half * i / N, tl]); line(pts); }
+        if (isCalibrated) {
+            for (const rb of [centerRel - half, centerRel + half]) { const pts = []; for (let i = 0; i <= N; i++) pts.push([rb, lo + (hi - lo) * i / N]); line(pts); }
+        }
+        octx.setLineDash([]);
     }
 
     function updateGlareInfo(now) {
