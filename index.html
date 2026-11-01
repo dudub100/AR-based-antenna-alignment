@@ -174,9 +174,10 @@
             </div>
             <div class="row">
                 <label for="glare-flashes">Flashes to confirm</label>
-                <input type="number" id="glare-flashes" min="1" max="8" step="1" value="3">
+                <input type="number" id="glare-flashes" min="1" max="8" step="1" value="2">
             </div>
             <div id="glare-status">Scanning…</div>
+            <div style="font-size:0.75rem; color:#ccc; margin-top:4px;">Counts slow on/off flashes. Glares that stay lit are ignored.</div>
         </div>
     </div>
 
@@ -564,7 +565,12 @@
     const MAX_SPEED = 20;        // deg/s; above this, detection pauses (frame/sensor timing mismatch)
     const DETECT_INTERVAL = 66;  // ms between processed frames (~15 fps)
     const OFF_FRAMES = 2;        // consecutive misses before a blob counts as "off"
-    const TRACK_TTL = 8000;      // ms an unconfirmed candidate is remembered
+    // Flash timing, tuned for a person moving a mirror by hand (slow on/off)
+    const MIN_DARK = 300;        // ms: a dark gap must last at least this long to count (shorter = flicker/noise)
+    const MAX_DARK = 15000;      // ms: longer gaps are not counted as part of a flash sequence
+    const FIXED_TIME = 6000;     // ms: a glare lit continuously this long is treated as fixed and ignored
+    const FLASH_WINDOW = 45000;  // ms: flashes must happen within this window to confirm
+    const TRACK_TTL = 20000;     // ms an unconfirmed candidate is remembered without being seen
 
     const btnGlare = document.getElementById('btn-glare');
     const btnGlareSync = document.getElementById('btn-glare-sync');
@@ -701,26 +707,43 @@
                 matched.add(best);
                 best.dir = normalize([best.dir[0] * 0.7 + w[0] * 0.3, best.dir[1] * 0.7 + w[1] * 0.3, best.dir[2] * 0.7 + w[2] * 0.3]);
                 best.lastSeen = now; best.miss = 0;
-                if (!best.on) { best.on = true; best.onEvents++; }
+                if (!best.on) {
+                    // The glare came back after being dark: decide whether this was a real flash
+                    const dark = now - best.offSince;
+                    best.on = true; best.onSince = now;
+                    if (dark >= MIN_DARK && dark <= MAX_DARK) {
+                        if (best.fixed) best.fixed = false;   // a real dark gap re-arms a glare marked fixed
+                        else best.flashes.push(now);
+                    }
+                }
             } else if (tracks.length < 40) {
-                const t = { dir: w, lastSeen: now, miss: 0, on: true, onEvents: 1, locked: false };
+                // First sighting does not count as a flash: it might just be a fixed glare coming into view
+                const t = { dir: w, lastSeen: now, miss: 0, firstMissAt: 0, on: true, onSince: now, offSince: 0, flashes: [], fixed: false, locked: false };
                 tracks.push(t); matched.add(t);
             }
         }
 
-        // A track only switches "off" if it should be visible but is not seen
         for (const t of tracks) {
-            if (matched.has(t)) continue;
-            const p = projectWorld(cam, R, t.dir);
-            const inView = !p.behind && p.vx >= 0 && p.vx <= cam.vw && p.vy >= 0 && p.vy <= cam.vh;
-            if (inView) { t.miss++; if (t.miss >= OFF_FRAMES && t.on) t.on = false; }
+            if (!matched.has(t)) {
+                // A track only goes dark if it should be visible but is not seen
+                const p = projectWorld(cam, R, t.dir);
+                const inView = !p.behind && p.vx >= 0 && p.vx <= cam.vw && p.vy >= 0 && p.vy <= cam.vh;
+                if (inView) {
+                    if (t.miss === 0) t.firstMissAt = now;
+                    t.miss++;
+                    if (t.miss >= OFF_FRAMES && t.on) { t.on = false; t.offSince = t.firstMissAt; }
+                }
+            }
+            // Lit continuously for a long time = fixed glare (window, lamp, metal roof): ignore it
+            if (!t.locked && t.on && !t.fixed && now - t.onSince >= FIXED_TIME) { t.fixed = true; t.flashes = []; }
+            t.flashes = t.flashes.filter(ts => now - ts <= FLASH_WINDOW);
         }
 
         tracks = tracks.filter(t => t.locked || now - t.lastSeen < TRACK_TTL);
 
         if (!lockedGlare) {
-            const need = Math.max(1, parseInt(flashesInput.value, 10) || 3);
-            const cand = tracks.filter(t => t.onEvents >= need).sort((a, b) => b.onEvents - a.onEvents)[0];
+            const need = Math.max(1, parseInt(flashesInput.value, 10) || 2);
+            const cand = tracks.filter(t => !t.fixed && t.flashes.length >= need).sort((a, b) => b.flashes.length - a.flashes.length)[0];
             if (cand) lockGlare(cand);
         }
     }
@@ -799,21 +822,30 @@
         octx.clearRect(0, 0, W, H);
         if (!glareMode || !cam || !R) return;
 
-        const need = Math.max(1, parseInt(flashesInput.value, 10) || 3);
+        const need = Math.max(1, parseInt(flashesInput.value, 10) || 2);
         octx.font = 'bold 12px monospace';
         octx.textAlign = 'center';
 
-        // Unconfirmed candidates (shows the flash count so the user can see it is working)
+        // Candidates: yellow = counting flashes, grey dashed = fixed glare being ignored
         for (const t of tracks) {
-            if (t.locked || !(t.on || t.onEvents >= 2)) continue;
+            if (t.locked) continue;
+            if (!t.on && !t.flashes.length && !t.fixed) continue;
             const p = projectWorld(cam, R, t.dir);
             if (p.behind) continue;
-            octx.setLineDash([]);
             octx.lineWidth = 2;
-            octx.strokeStyle = 'rgba(255,235,59,0.85)';
-            octx.beginPath(); octx.arc(p.sx, p.sy, 14, 0, Math.PI * 2); octx.stroke();
-            if (t.onEvents >= 2) { octx.fillStyle = '#ffeb3b'; octx.fillText(`${t.onEvents}/${need}`, p.sx, p.sy - 20); }
+            if (t.fixed) {
+                octx.setLineDash([3, 4]);
+                octx.strokeStyle = 'rgba(180,180,180,0.7)';
+                octx.beginPath(); octx.arc(p.sx, p.sy, 12, 0, Math.PI * 2); octx.stroke();
+                octx.fillStyle = 'rgba(200,200,200,0.8)'; octx.fillText('fixed', p.sx, p.sy - 18);
+            } else {
+                octx.setLineDash(t.on ? [] : [4, 4]);
+                octx.strokeStyle = 'rgba(255,235,59,0.9)';
+                octx.beginPath(); octx.arc(p.sx, p.sy, 14, 0, Math.PI * 2); octx.stroke();
+                if (t.flashes.length) { octx.fillStyle = '#ffeb3b'; octx.fillText(`${t.flashes.length}/${need}`, p.sx, p.sy - 20); }
+            }
         }
+        octx.setLineDash([]);
 
         if (!lockedGlare) return;
         const p = projectWorld(cam, R, lockedGlare.dir);
@@ -859,8 +891,10 @@
             const ago = (now - lockedGlare.lastSeen) / 1000;
             glareStatus.innerText = ago < 0.3 ? 'Locked, glare visible' : `Locked, last seen ${ago.toFixed(0)}s ago`;
         } else {
-            const best = tracks.reduce((m, t) => Math.max(m, t.onEvents), 0);
-            glareStatus.innerText = `Scanning… ${tracks.length} candidate(s)` + (best >= 2 ? `, best ${best} flashes` : '');
+            const active = tracks.filter(t => !t.fixed);
+            const fixedCount = tracks.length - active.length;
+            const best = active.reduce((m, t) => Math.max(m, t.flashes.length), 0);
+            glareStatus.innerText = `Scanning… ${active.length} candidate(s)` + (best ? `, best ${best} flash(es)` : '') + (fixedCount ? `, ${fixedCount} fixed ignored` : '');
         }
 
         if (!lockedGlare) { glareInfo.innerText = 'searching'; return; }
